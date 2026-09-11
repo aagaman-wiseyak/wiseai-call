@@ -36,12 +36,17 @@ import { callLlm } from '../../utils/llmClient';
 
 import {
   ArrowLeft,
-  Play,
   LayoutGrid,
   Plus,
   PhoneCall,
   Download,
+  HelpCircle,
+  GitFork,
+  ShieldAlert,
+  Zap,
+  RotateCcw,
 } from 'lucide-react';
+import { WiseBrandLogo } from '../brand/WiseBrandLogo';
 
 const nodeTypes = {
   greeting: GreetingNode,
@@ -80,12 +85,21 @@ export const CanvasStudio: React.FC<CanvasStudioProps> = ({
   const [edges, setEdges, onEdgesChange] = useEdgesState<CustomFlowEdge>(template.initialEdges);
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
 
+  // Store pristine initial layout for 1-click revert capability
+  const pristineLayoutRef = useRef<{ nodes: CustomFlowNode[]; edges: CustomFlowEdge[] } | null>(null);
+
   // Synchronize when template prop updates (e.g. from prompt generator or template selection)
   React.useEffect(() => {
     if (template) {
       setCampaignKnowledge(template.knowledge);
-      setNodes(template.initialNodes);
-      setEdges(template.initialEdges);
+      // Run dagre clean layout to ensure nodes are placed without overlaps
+      const cleanlyLayouted = getLayoutedElements(template.initialNodes, template.initialEdges, 'TB');
+      setNodes(cleanlyLayouted.nodes);
+      setEdges(cleanlyLayouted.edges);
+      pristineLayoutRef.current = {
+        nodes: JSON.parse(JSON.stringify(cleanlyLayouted.nodes)),
+        edges: JSON.parse(JSON.stringify(cleanlyLayouted.edges)),
+      };
       setSelectedNodeId(null);
       setTimeout(() => {
         if (rfInstance) {
@@ -388,13 +402,26 @@ export const CanvasStudio: React.FC<CanvasStudioProps> = ({
     setSelectedNodeId(id);
   };
 
-  // Auto Layout
+  // Auto Clean Layout (instant clean dynamic rearrangement)
   const handleAutoLayout = useCallback(() => {
     const layouted = getLayoutedElements(nodes, edges, 'TB');
     setNodes([...layouted.nodes]);
     setEdges([...layouted.edges]);
-    setTimeout(() => rfInstance?.fitView({ padding: 0.15, duration: 400 }), 50);
-  }, [nodes, edges, rfInstance]);
+    setTimeout(() => rfInstance?.fitView({ padding: 0.18, duration: 400 }), 60);
+  }, [nodes, edges, rfInstance, setNodes, setEdges]);
+
+  // Revert / Reset Layout (restores original clean template state or resets positions)
+  const handleResetLayout = useCallback(() => {
+    if (pristineLayoutRef.current) {
+      setNodes(JSON.parse(JSON.stringify(pristineLayoutRef.current.nodes)));
+      setEdges(JSON.parse(JSON.stringify(pristineLayoutRef.current.edges)));
+    } else {
+      const layouted = getLayoutedElements(nodes, edges, 'TB');
+      setNodes([...layouted.nodes]);
+      setEdges([...layouted.edges]);
+    }
+    setTimeout(() => rfInstance?.fitView({ padding: 0.18, duration: 400 }), 60);
+  }, [nodes, edges, rfInstance, setNodes, setEdges]);
 
   // Prompt Refine: natural language prompt modification via WiseAI LLM
   const handlePromptRefine = async (promptText: string) => {
@@ -510,10 +537,12 @@ export const CanvasStudio: React.FC<CanvasStudioProps> = ({
             <ArrowLeft size={14} /> Templates
           </button>
           <div className="header-divider" />
+          <WiseBrandLogo size="sm" showTagline={false} />
+          <div className="header-divider" />
           <div className="header-campaign-info">
             <h2 className="header-campaign-title">{template.name}</h2>
             <span className="header-campaign-badge">
-              Step 2: Flow Setup & Canvas
+              Decision Flow Studio
             </span>
           </div>
         </div>
@@ -526,28 +555,32 @@ export const CanvasStudio: React.FC<CanvasStudioProps> = ({
               onClick={() => handleAddNode('question')}
               title="Add Question Node"
             >
-              <Plus size={12} /> Question
+              <HelpCircle size={13} color="#4AADDE" />
+              <span>Question</span>
             </button>
             <button
               className="btn-quick-add"
               onClick={() => handleAddNode('scenarioBranch')}
               title="Add Scenario Router"
             >
-              <Plus size={12} /> Branch
+              <GitFork size={13} color="#8280FF" />
+              <span>Branch</span>
             </button>
             <button
               className="btn-quick-add"
               onClick={() => handleAddNode('knowledge')}
               title="Add Objection Rebuttal"
             >
-              <Plus size={12} /> Rebuttal
+              <ShieldAlert size={13} color="#F59E0B" />
+              <span>Rebuttal</span>
             </button>
             <button
               className="btn-quick-add"
               onClick={() => handleAddNode('action')}
               title="Add Action Trigger"
             >
-              <Plus size={12} /> Action
+              <Zap size={13} color="#10B981" />
+              <span>Action</span>
             </button>
           </div>
 
@@ -556,9 +589,17 @@ export const CanvasStudio: React.FC<CanvasStudioProps> = ({
           <button
             className="btn-clean-secondary"
             onClick={handleAutoLayout}
-            title="Auto-arrange graph layout"
+            title="Auto-arrange graph cleanly without overlaps"
           >
-            <LayoutGrid size={14} /> Layout
+            <LayoutGrid size={14} /> Auto Layout
+          </button>
+
+          <button
+            className="btn-clean-secondary"
+            onClick={handleResetLayout}
+            title="Revert back to pristine clean layout"
+          >
+            <RotateCcw size={14} /> Reset Layout
           </button>
 
           <button
@@ -591,7 +632,8 @@ export const CanvasStudio: React.FC<CanvasStudioProps> = ({
             onEdgesChange={onEdgesChange}
             onConnect={onConnect}
             onNodeClick={onNodeClick}
-            onInit={(instance) => {
+            onPaneClick={onPaneClick}
+            onInit={(instance: any) => {
               setRfInstance(instance);
               setTimeout(() => {
                 instance.fitView({ padding: 0.18, duration: 350 });
@@ -608,7 +650,7 @@ export const CanvasStudio: React.FC<CanvasStudioProps> = ({
             <Controls className="clean-flow-controls" />
             <MiniMap
               className="clean-flow-minimap"
-              nodeColor={() => '#18181b'}
+              nodeColor={() => '#4AADDE'}
               maskColor="rgba(255, 255, 255, 0.7)"
             />
           </ReactFlow>

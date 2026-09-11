@@ -7,7 +7,6 @@ import {
   VolumeX,
   Mic,
   Send,
-  Sparkles,
   Clock,
   Variable,
   Wand2,
@@ -21,6 +20,7 @@ import {
   SimulationMessage,
 } from '../../types/flow';
 import { telephoneAudio, speakText, stopSpeech } from '../../utils/speech';
+import { WiseBrandLogo } from '../brand/WiseBrandLogo';
 
 interface VoiceCallPageProps {
   nodes: CustomFlowNode[];
@@ -265,8 +265,6 @@ export const VoiceCallPage: React.FC<VoiceCallPageProps> = ({
     setSimState((prev) => ({ ...prev, transcript: newTranscript }));
     setIsRouting(true);
 
-    const currentNode = nodes.find((n) => n.id === simState.activeNodeId);
-
     try {
       // POST TO FASTAPI PYTHON BACKEND
       const response = await fetch('/api/call/process-turn', {
@@ -389,47 +387,85 @@ export const VoiceCallPage: React.FC<VoiceCallPageProps> = ({
     }));
   };
 
-  const getContextualResponseChips = () => {
+  const getContextualResponseChips = (): string[] => {
     const currentNode = nodes.find((n) => n.id === simState.activeNodeId);
-    if (!currentNode) return ['Yes, confirmed', 'Need to reschedule', 'I am busy right now'];
+    if (!currentNode) {
+      return ['Yes, speaking', 'Could you repeat that?', 'I am busy right now'];
+    }
 
-    if (currentNode.data.type === 'greeting') {
-      return [
-        `Yes, this is ${knowledge.leadProfile.name}`,
-        'What is this call about?',
-        'Leave a message (Voicemail)',
-        'I am in a meeting right now',
-      ];
-    }
-    if (currentNode.data.type === 'question') {
-      // Contextual chips for ISP renewal and general decision questions
-      if (currentNode.id === 'node-q2-usage') {
-        return [
-          'What packages and Mbps speeds do you offer?',
-          'We stream 4K video and work from home',
-          'Just basic browsing for 1-2 people',
-          'What discount do I get for annual renewal?',
-          'Do I get a new router?',
-          'I am not interested in renewing',
-        ];
+    const chips: string[] = [];
+
+    // 1. Dynamic chips from outgoing decision branches departing from currentNode
+    const outgoing = edges.filter((e) => e.source === currentNode.id);
+    outgoing.forEach((edge) => {
+      const edgeLabel = edge.data?.label || '';
+      if (edgeLabel) {
+        // Clean up common branch prefixes like "If ... -> ..." or "If Agrees -> Confirm"
+        const cleanChip = edgeLabel
+          .replace(/^If\s+/i, '')
+          .replace(/\s*->.*$/, '')
+          .trim();
+        if (cleanChip && !chips.includes(cleanChip)) {
+          chips.push(cleanChip);
+        }
       }
-      return [
-        'Yes, that sounds great',
-        'What speeds are available?',
-        'Is there any discount?',
-        'How much will this cost?',
-        'Do I get a new Wi-Fi router?',
-        'Cancel, not interested',
-      ];
+    });
+
+    // 2. Dynamic chips from scenario branch options if applicable
+    if (currentNode.data.type === 'scenarioBranch') {
+      const branches = (currentNode.data as any).branches || [];
+      branches.forEach((b: any) => {
+        if (b.label && !chips.includes(b.label)) {
+          chips.push(b.label);
+        }
+      });
     }
-    if (currentNode.data.type === 'knowledge') {
-      return [
-        'That makes sense, lock in the discount',
-        'Can I get free Wi-Fi 6 router?',
-        'Still too expensive for me',
-      ];
+
+    // 3. Dynamic inquiries from Campaign FAQs
+    if (knowledge.faqs && knowledge.faqs.length > 0) {
+      knowledge.faqs.slice(0, 2).forEach((faq) => {
+        if (!chips.includes(faq.question)) {
+          chips.push(faq.question);
+        }
+      });
     }
-    return ['Sounds good', 'Thank you', 'Goodbye'];
+
+    // 4. Dynamic triggers from Campaign Global Objections
+    if (knowledge.globalObjections && knowledge.globalObjections.length > 0) {
+      knowledge.globalObjections.slice(0, 2).forEach((obj) => {
+        if (!chips.includes(obj.trigger)) {
+          chips.push(obj.trigger);
+        }
+      });
+    }
+
+    // 5. Node-type specific natural conversational fallbacks
+    if (currentNode.data.type === 'greeting') {
+      if (!chips.some((c) => c.toLowerCase().includes('yes'))) {
+        chips.unshift(`Yes, this is ${knowledge.leadProfile.name}`);
+      }
+      if (!chips.some((c) => c.toLowerCase().includes('busy'))) {
+        chips.push('I am in a meeting, can you call back later?');
+      }
+    } else if (currentNode.data.type === 'question') {
+      if (!chips.some((c) => c.toLowerCase().includes('yes') || c.toLowerCase().includes('sounds'))) {
+        chips.unshift('Yes, sounds good');
+      }
+      if (!chips.some((c) => c.toLowerCase().includes('not') || c.toLowerCase().includes('cancel'))) {
+        chips.push('Not interested right now');
+      }
+    } else if (currentNode.data.type === 'knowledge') {
+      chips.unshift("Understood, let's move forward");
+      chips.push('I still have some concerns');
+    } else if (currentNode.data.type === 'action') {
+      chips.unshift('Confirm and proceed');
+      chips.push('Need to reschedule');
+    } else if (currentNode.data.type === 'hangup') {
+      chips.unshift('Thank you, goodbye');
+    }
+
+    // Return max 6 chips to keep layout balanced
+    return chips.slice(0, 6);
   };
 
   const formatTime = (secs: number) => {
@@ -481,17 +517,22 @@ export const VoiceCallPage: React.FC<VoiceCallPageProps> = ({
     <div className="voice-call-page">
       {/* Header Bar */}
       <header className="voice-header">
-        <button className="btn-clean-back" onClick={onBackToCanvas}>
-          <ArrowLeft size={14} /> Back to Flow Canvas
-        </button>
+        <div className="voice-header-left">
+          <button className="btn-clean-back" onClick={onBackToCanvas}>
+            <ArrowLeft size={14} /> Back to Canvas
+          </button>
+          <div className="header-divider" />
+          <WiseBrandLogo size="sm" showTagline={false} />
+        </div>
 
         <div className="voice-header-center">
           <div className="call-info-block">
+            <span className="persona-label">Contact:</span>
             <span className="callee-name">{knowledge.leadProfile.name}</span>
-            <span className="callee-phone">{knowledge.leadProfile.phone}</span>
+            <span className="callee-phone">({knowledge.leadProfile.phone})</span>
           </div>
           <div className="call-persona-block">
-            <span className="persona-label">Agent:</span>
+            <span className="persona-label">AI Agent:</span>
             <span className="persona-name">{knowledge.agentPersona.name} ({knowledge.agentPersona.company})</span>
           </div>
         </div>
@@ -499,7 +540,7 @@ export const VoiceCallPage: React.FC<VoiceCallPageProps> = ({
         <div className="voice-header-right">
           <div className={`backend-indicator ${backendStatus}`} title="FastAPI Python Backend Status">
             <span className="indicator-dot" />
-            <span>FastAPI Backend: {backendStatus}</span>
+            <span>FastAPI: {backendStatus}</span>
           </div>
           <button
             className={`btn-icon-clean ${simState.audioTtsEnabled ? 'active' : ''}`}
@@ -519,16 +560,28 @@ export const VoiceCallPage: React.FC<VoiceCallPageProps> = ({
         {/* Left Telephony Status Column */}
         <div className="telephony-column">
           <div className="telephony-card">
-            {/* Status Visualizer Circle */}
-            <div className={`avatar-status-circle ${simState.status}`}>
+            {/* Status Visualizer Circle per Section 2.7 of Brand Spec */}
+            <div
+              className={`avatar-status-circle ${
+                simState.status === 'connected'
+                  ? simState.isAiSpeaking
+                    ? 'speaking'
+                    : 'connected'
+                  : simState.status
+              }`}
+            >
               {simState.isAiSpeaking ? (
-                <div className="voice-wave-bars">
+                <div className="voice-wave-bars" title="Agent speaking">
                   <span />
                   <span />
                   <span />
                   <span />
                   <span />
                 </div>
+              ) : simState.status === 'connected' ? (
+                <Mic size={28} className="phone-icon-center" style={{ color: 'var(--color-listening)' }} />
+              ) : simState.status === 'ended' ? (
+                <PhoneOff size={26} className="phone-icon-center" style={{ color: 'var(--color-success)' }} />
               ) : (
                 <Phone size={28} className="phone-icon-center" />
               )}
@@ -537,7 +590,8 @@ export const VoiceCallPage: React.FC<VoiceCallPageProps> = ({
             <div className="call-status-headline">
               {simState.status === 'idle' && 'Ready to Dial'}
               {simState.status === 'ringing' && 'Ringing Outbound...'}
-              {simState.status === 'connected' && 'Call Connected'}
+              {simState.status === 'connected' &&
+                (simState.isAiSpeaking ? 'Agent Speaking...' : 'Listening to Contact...')}
               {simState.status === 'ended' && 'Call Concluded'}
             </div>
 
@@ -631,8 +685,14 @@ export const VoiceCallPage: React.FC<VoiceCallPageProps> = ({
             {isRouting && (
               <div className="clean-msg-row agent thinking-row">
                 <div className="clean-msg-bubble thinking-bubble">
-                  <Sparkles size={12} className="thinking-icon spin" />
-                  <span className="thinking-text">FastAPI LLM Intent Router evaluating customer response & campaign knowledge...</span>
+                  <div className="thinking-dots-container">
+                    <span className="thinking-dot" />
+                    <span className="thinking-dot" />
+                    <span className="thinking-dot" />
+                  </div>
+                  <span className="thinking-text" style={{ marginLeft: 8 }}>
+                    Evaluating customer response & campaign decision tree...
+                  </span>
                 </div>
               </div>
             )}
