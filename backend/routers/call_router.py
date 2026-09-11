@@ -1,5 +1,5 @@
 import logging
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, UploadFile, File, Form
 from pydantic import BaseModel, Field
 from typing import List, Dict, Any, Optional
 
@@ -19,6 +19,7 @@ class ProcessTurnRequest(BaseModel):
     campaign_knowledge: Optional[Dict[str, Any]] = None
     conversation_history: List[Dict[str, Any]] = Field(default_factory=list)
     variables: Dict[str, Any] = Field(default_factory=dict)
+    synthesize_audio: bool = False
 
 class ProcessTurnResponse(BaseModel):
     next_node_id: Optional[str]
@@ -30,19 +31,22 @@ class ProcessTurnResponse(BaseModel):
     reasoning: str
     action_payload: Optional[Dict[str, Any]] = None
     updated_variables: Dict[str, Any] = Field(default_factory=dict)
+    audio_base64: Optional[str] = None
 
 class TTSRequest(BaseModel):
     text: str
     voice_id: Optional[str] = None
+    language: str = "en"
     speed: float = 1.0
 
 @router.post("/process-turn", response_model=ProcessTurnResponse)
 async def process_turn(req: ProcessTurnRequest):
     """
     Processes user response:
-    1. Checks if customer asks a campaign knowledge question (e.g. ISP renewal packages, Mbps tiers, discounts, routers).
-    2. If knowledge question: answers it accurately using campaign knowledge and either resumes current node or transitions smoothly.
-    3. Runs LLM Intent Router: analyzes outgoing branches from current_node_id to determine next step (e.g. Q3 vs Q4, action, rebuttal, or hangup).
+    1. Checks if customer asks a campaign knowledge question (packages, Mbps tiers, discounts, routers).
+    2. If knowledge question: answers it accurately using campaign knowledge and stays on current node.
+    3. Runs LLM Intent Router: analyzes outgoing branches from current_node_id to determine next step (Q3 vs Q4, action, rebuttal, or hangup).
+    4. Optionally synthesizes voice audio using WiseAI TTS.
     """
     current_node = next((n for n in req.nodes if n.get("id") == req.current_node_id), None)
     if not current_node:
@@ -63,21 +67,26 @@ async def process_turn(req: ProcessTurnRequest):
 
     if is_knowledge and answer_text:
         logger.info(f"Campaign knowledge query detected on topic '{topic}': {req.user_text}")
+        audio_b64 = None
+        if req.synthesize_audio:
+            tts_res = await tts_service.synthesize_speech(answer_text)
+            audio_b64 = tts_res.get("audio_base64")
+
         return ProcessTurnResponse(
-            next_node_id=req.current_node_id, # Stay on current question after answering inquiry
+            next_node_id=req.current_node_id,
             ai_response_text=answer_text,
             intent_matched=f"Campaign Knowledge: {topic}",
             confidence=0.96,
             knowledge_invoked=True,
             knowledge_topic=topic,
             reasoning=f"User inquired about {topic}. Answered directly from campaign catalog.",
+            audio_base64=audio_b64,
             updated_variables=req.variables,
         )
 
     # 2. Extract outgoing branches departing from current_node_id
     outgoing = [e for e in req.edges if e.get("source") == req.current_node_id]
 
-    # If no outgoing edges, lead is at a terminal step
     if not outgoing:
         return ProcessTurnResponse(
             next_node_id=None,
@@ -101,7 +110,6 @@ async def process_turn(req: ProcessTurnRequest):
     next_id = routing_result["next_node_id"]
     next_node = next((n for n in req.nodes if n.get("id") == next_id), None)
 
-    # Determine speech script for the next node
     ai_speech = ""
     action_data = None
     if next_node:
@@ -118,9 +126,13 @@ async def process_turn(req: ProcessTurnRequest):
         else:
             ai_speech = next_node.get("data", {}).get("label", "")
 
-    # Interpolate variables in speech
     for k, v in req.variables.items():
         ai_speech = ai_speech.replace(f"{{{{{k}}}}}", str(v))
+
+    audio_b64 = None
+    if req.synthesize_audio and ai_speech:
+        tts_res = await tts_service.synthesize_speech(ai_speech)
+        audio_b64 = tts_res.get("audio_base64")
 
     return ProcessTurnResponse(
         next_node_id=next_id,
@@ -130,6 +142,7 @@ async def process_turn(req: ProcessTurnRequest):
         knowledge_invoked=False,
         reasoning=routing_result.get("reasoning", "Mapped by LLM intent router"),
         action_payload=action_data,
+        audio_base64=audio_b64,
         updated_variables=req.variables,
     )
 
@@ -140,10 +153,29 @@ async def get_isp_campaign_knowledge():
 
 @router.post("/tts")
 async def synthesize_speech(req: TTSRequest):
-    """Modular TTS endpoint ready for speech synthesis."""
-    return await tts_service.synthesize_speech(req.text, req.voice_id, req.speed)
+    """
+    Synthesizes speech using WiseAI TTS:
+    POST /tts/generate_from_text
+    """
+    return await tts_service.synthesize_speech(
+        text=req.text,
+        voice_id=req.voice_id,
+        language=req.language,
+        speed=req.speed,
+    )
 
 @router.post("/asr")
-async def transcribe_speech():
-    """Modular ASR endpoint ready for audio transcription."""
-    return {"message": "ASR ready. In web client, speech recognition or audio streaming is supported."}
+async def transcribe_speech(
+    file: UploadFile = File(...),
+    language: Optional[str] = Form(None),
+):
+    """
+    Transcribes audio using WiseAI ASR:
+    POST /asr/transcribe-from-stream
+    """
+    audio_bytes = await file.read()
+    return await asr_service.transcribe_audio(
+        audio_bytes=audio_bytes,
+        language=language,
+        filename=file.filename or "audio.wav",
+    )

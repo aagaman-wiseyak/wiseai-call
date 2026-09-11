@@ -1,0 +1,1547 @@
+{
+    "openapi": "3.1.0",
+    "info": {
+        "title": "WiseAI Models",
+        "description": "API services for llm, embedding and reranking model.",
+        "version": "1.0.0"
+    },
+    "paths": {
+        "/providers/gemini/asr/transcribe": {
+            "post": {
+                "tags": [
+                    "Gemini ASR Endpoints"
+                ],
+                "summary": "Transcribe audio with Gemini",
+                "description": "Transcribe an uploaded audio file, or one already in object storage.",
+                "operationId": "transcribe_providers_gemini_asr_transcribe_post",
+                "requestBody": {
+                    "content": {
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/Body_transcribe_providers_gemini_asr_transcribe_post"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/TranscriptionResponse"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/asr/transcribe-from-url": {
+            "post": {
+                "tags": [
+                    "asr_service"
+                ],
+                "summary": "Transcribe audio from MinIO URL",
+                "description": "Transcribe audio stored at a MinIO URL.",
+                "operationId": "transcribe_from_url_asr_transcribe_from_url_post",
+                "requestBody": {
+                    "content": {
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/Body_transcribe_from_url_asr_transcribe_from_url_post"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {}
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/asr/transcribe-from-stream": {
+            "post": {
+                "tags": [
+                    "asr_service"
+                ],
+                "summary": "Transcribe an uploaded audio file",
+                "description": "Transcribe an uploaded audio file.",
+                "operationId": "transcribe_from_stream_asr_transcribe_from_stream_post",
+                "requestBody": {
+                    "content": {
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/Body_transcribe_from_stream_asr_transcribe_from_stream_post"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {}
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/asr/status/{file_name}": {
+            "get": {
+                "tags": [
+                    "asr_service"
+                ],
+                "summary": "Check ASR job status",
+                "description": "Poll the processing status of an ASR transcription job.",
+                "operationId": "asr_status_asr_status__file_name__get",
+                "parameters": [
+                    {
+                        "name": "file_name",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "title": "File Name"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {}
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/embed": {
+            "post": {
+                "tags": [
+                    "embedding_service"
+                ],
+                "summary": "Generate text embeddings",
+                "description": "Proxy to upstream TEI /embed for semantic search.",
+                "operationId": "embed_proxy_embed_post",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/EmbedRequest"
+                            },
+                            "example": {
+                                "inputs": [
+                                    "Wiseyak is a pioneering AI-based healthcare startup with a mission to revolutionize the healthcare industry. Our core focus is on creating innovative platforms that break down barriers, making quality healthcare accessible to everyone, regardless of their location or background. "
+                                ],
+                                "truncate": true
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {}
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/chat/completions": {
+            "post": {
+                "tags": [
+                    "llm_service"
+                ],
+                "summary": "Chat with WiseYak LLM",
+                "description": "OpenAI-style chat completions endpoint forwarding a normalized payload to the configured vLLM backend. Extra generation parameters (stream, stop, tools, etc.) are preserved. Returns upstream JSON in OpenAI format (choices, usage, etc.).",
+                "operationId": "chat_completions_proxy_v1_chat_completions_post",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ChatCompletionRequest"
+                            },
+                            "example": {
+                                "messages": [
+                                    {
+                                        "role": "user",
+                                        "content": "what is the height of mount everest"
+                                    }
+                                ],
+                                "max_tokens": 712,
+                                "stream": false,
+                                "chat_template_kwargs": {
+                                    "enable_thinking": false
+                                }
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {}
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/completions": {
+            "post": {
+                "tags": [
+                    "llm_service"
+                ],
+                "summary": "Text completions with WiseYak LLM",
+                "description": "Legacy OpenAI-style text completions endpoint. A direct prompt is continued as given. A messages array is answered by the chat upstream, so the model's chat template applies, and the reply is re-shaped into the text_completion envelope.",
+                "operationId": "completions_proxy_v1_completions_post",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/CompletionRequest"
+                            },
+                            "example": {
+                                "messages": [
+                                    {
+                                        "role": "user",
+                                        "content": "what is the height of mount everest"
+                                    }
+                                ],
+                                "max_tokens": 712,
+                                "stream": false,
+                                "chat_template_kwargs": {
+                                    "enable_thinking": false
+                                }
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {}
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/rerank": {
+            "post": {
+                "tags": [
+                    "reranker_service"
+                ],
+                "summary": "Rerank candidate texts",
+                "description": "Rerank supplied texts for a query.",
+                "operationId": "rerank_proxy_rerank_post",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/RerankProxyRequest"
+                            },
+                            "example": {
+                                "query": "customer asks about flood preparedness",
+                                "texts": [
+                                    "The city deployed sandbags along riverbanks ahead of the forecasted storm.",
+                                    "Our support center handles general billing questions via a different workflow."
+                                ],
+                                "return_documents": true,
+                                "metadata": {
+                                    "source": "wiseyak-demo"
+                                }
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {}
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/status/models/": {
+            "get": {
+                "tags": [
+                    "status"
+                ],
+                "summary": "Service and model status",
+                "description": "Aggregated snapshot of configured model services (LLM, embeddings, rerank, ASR, TTS). Each entry includes id, type, name, support, version and health. Data is also used by the background ModelHealthMonitor for MLflow metrics.",
+                "operationId": "status_models_status_models__get",
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {}
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/translate": {
+            "post": {
+                "tags": [
+                    "translation_service"
+                ],
+                "summary": "Translate text between languages",
+                "description": "Translate text from one language to another.",
+                "operationId": "translate_translate_post",
+                "requestBody": {
+                    "content": {
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/Body_translate_translate_post"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {}
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/providers/gemini/tts/generate": {
+            "post": {
+                "tags": [
+                    "Gemini TTS Endpoints"
+                ],
+                "summary": "Synthesize speech with Gemini",
+                "description": "Speak the given text, returning WAV bytes or a storage URL.",
+                "operationId": "generate_providers_gemini_tts_generate_post",
+                "requestBody": {
+                    "content": {
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/Body_generate_providers_gemini_tts_generate_post"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {}
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/providers/gemini/tts/status/{filename}": {
+            "get": {
+                "tags": [
+                    "Gemini TTS Endpoints"
+                ],
+                "summary": "Get Processing Status",
+                "description": "Report the state of a background clip upload.",
+                "operationId": "get_processing_status_providers_gemini_tts_status__filename__get",
+                "parameters": [
+                    {
+                        "name": "filename",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "title": "Filename"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/TTSStatusResponse"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/tts/generate_from_text": {
+            "post": {
+                "tags": [
+                    "tts_service"
+                ],
+                "summary": "Generate TTS audio from text",
+                "description": "Generate TTS audio from plain text and return a MinIO URL or audio.",
+                "operationId": "generate_from_text_tts_generate_from_text_post",
+                "requestBody": {
+                    "content": {
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/Body_generate_from_text_tts_generate_from_text_post"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {}
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/tts/generate_from_url": {
+            "post": {
+                "tags": [
+                    "tts_service"
+                ],
+                "summary": "Generate TTS audio from MinIO URL",
+                "description": "Generate TTS audio from text stored at a MinIO URL.",
+                "operationId": "generate_from_url_tts_generate_from_url_post",
+                "requestBody": {
+                    "content": {
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/Body_generate_from_url_tts_generate_from_url_post"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {}
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/tts/status/{filename}": {
+            "get": {
+                "tags": [
+                    "tts_service"
+                ],
+                "summary": "Check TTS job status",
+                "description": "Poll the processing status of a TTS generation job.",
+                "operationId": "tts_status_tts_status__filename__get",
+                "parameters": [
+                    {
+                        "name": "filename",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "title": "Filename"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {}
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    },
+    "components": {
+        "schemas": {
+            "Body_generate_from_text_tts_generate_from_text_post": {
+                "properties": {
+                    "text": {
+                        "type": "string",
+                        "title": "Text",
+                        "description": "Text to synthesize"
+                    },
+                    "language": {
+                        "type": "string",
+                        "title": "Language",
+                        "description": "Language code"
+                    },
+                    "output_type": {
+                        "type": "string",
+                        "title": "Output Type",
+                        "description": "Return 'audio' or 'url'",
+                        "default": "url"
+                    },
+                    "audio_speed": {
+                        "anyOf": [
+                            {
+                                "type": "number"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Audio Speed",
+                        "description": "Playback speed multiplier",
+                        "default": 1.0
+                    },
+                    "reference_audio_id": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Reference Audio Id",
+                        "description": "Speaker reference ID",
+                        "default": "traindatashuvani_2"
+                    },
+                    "target_sample_rate": {
+                        "anyOf": [
+                            {
+                                "type": "integer"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Target Sample Rate",
+                        "description": "Output sample rate in Hz"
+                    },
+                    "bucket_name": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Bucket Name"
+                    },
+                    "organization": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Organization"
+                    },
+                    "service": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Service"
+                    },
+                    "user_id": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "User Id"
+                    },
+                    "filename": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Filename",
+                        "description": "Override output filename"
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "text",
+                    "language"
+                ],
+                "title": "Body_generate_from_text_tts_generate_from_text_post"
+            },
+            "Body_generate_from_url_tts_generate_from_url_post": {
+                "properties": {
+                    "minio_url": {
+                        "type": "string",
+                        "title": "Minio Url",
+                        "description": "MinIO URL of the source text file"
+                    },
+                    "language": {
+                        "type": "string",
+                        "title": "Language",
+                        "description": "Language code"
+                    },
+                    "output_type": {
+                        "type": "string",
+                        "title": "Output Type",
+                        "description": "Return 'audio' or 'url'",
+                        "default": "url"
+                    },
+                    "audio_speed": {
+                        "anyOf": [
+                            {
+                                "type": "number"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Audio Speed",
+                        "description": "Playback speed multiplier",
+                        "default": 1.0
+                    },
+                    "reference_audio_id": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Reference Audio Id",
+                        "description": "Speaker reference ID",
+                        "default": "traindatashuvani_2"
+                    },
+                    "target_sample_rate": {
+                        "anyOf": [
+                            {
+                                "type": "integer"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Target Sample Rate",
+                        "description": "Output sample rate in Hz"
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "minio_url",
+                    "language"
+                ],
+                "title": "Body_generate_from_url_tts_generate_from_url_post"
+            },
+            "Body_generate_providers_gemini_tts_generate_post": {
+                "properties": {
+                    "text": {
+                        "type": "string",
+                        "title": "Text",
+                        "description": "Text to speak"
+                    },
+                    "language": {
+                        "type": "string",
+                        "title": "Language",
+                        "description": "Language of the text"
+                    },
+                    "output_type": {
+                        "$ref": "#/components/schemas/TTSOutput",
+                        "default": "url"
+                    },
+                    "audio_speed": {
+                        "type": "number",
+                        "title": "Audio Speed",
+                        "description": "Accepted; Gemini ignores it",
+                        "default": 1.0
+                    },
+                    "reference_audio_id": {
+                        "type": "string",
+                        "title": "Reference Audio Id",
+                        "description": "Gemini voice name, e.g. Kore or Puck",
+                        "default": "Kore"
+                    },
+                    "target_sample_rate": {
+                        "anyOf": [
+                            {
+                                "type": "integer"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Target Sample Rate",
+                        "description": "Accepted; Gemini always returns 24 kHz"
+                    },
+                    "bucket_name": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Bucket Name"
+                    },
+                    "organization": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Organization"
+                    },
+                    "service": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Service"
+                    },
+                    "user_id": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "User Id"
+                    },
+                    "filename": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Filename"
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "text",
+                    "language"
+                ],
+                "title": "Body_generate_providers_gemini_tts_generate_post"
+            },
+            "Body_transcribe_from_stream_asr_transcribe_from_stream_post": {
+                "properties": {
+                    "audio": {
+                        "type": "string",
+                        "contentMediaType": "application/octet-stream",
+                        "title": "Audio",
+                        "description": "Audio file to transcribe"
+                    },
+                    "language": {
+                        "type": "string",
+                        "title": "Language",
+                        "description": "Language code"
+                    },
+                    "output_type": {
+                        "type": "string",
+                        "title": "Output Type",
+                        "description": "Return 'text' or 'url'",
+                        "default": "url"
+                    },
+                    "bucket_name": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Bucket Name",
+                        "description": "Target MinIO bucket"
+                    },
+                    "organization": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Organization"
+                    },
+                    "service": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Service"
+                    },
+                    "user_id": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "User Id"
+                    },
+                    "filename": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Filename",
+                        "description": "Override output filename"
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "audio",
+                    "language"
+                ],
+                "title": "Body_transcribe_from_stream_asr_transcribe_from_stream_post"
+            },
+            "Body_transcribe_from_url_asr_transcribe_from_url_post": {
+                "properties": {
+                    "minio_url": {
+                        "type": "string",
+                        "title": "Minio Url",
+                        "description": "MinIO URL of the audio file"
+                    },
+                    "language": {
+                        "type": "string",
+                        "title": "Language",
+                        "description": "Language code"
+                    },
+                    "output_type": {
+                        "type": "string",
+                        "title": "Output Type",
+                        "description": "Return 'text' or 'url'",
+                        "default": "url"
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "minio_url",
+                    "language"
+                ],
+                "title": "Body_transcribe_from_url_asr_transcribe_from_url_post"
+            },
+            "Body_transcribe_providers_gemini_asr_transcribe_post": {
+                "properties": {
+                    "language": {
+                        "type": "string",
+                        "title": "Language",
+                        "description": "Spoken language of the audio"
+                    },
+                    "audio": {
+                        "anyOf": [
+                            {
+                                "type": "string",
+                                "contentMediaType": "application/octet-stream"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Audio",
+                        "description": "Audio file to transcribe"
+                    },
+                    "minio_url": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Minio Url",
+                        "description": "'bucket/object-key' of already stored audio"
+                    },
+                    "output_type": {
+                        "$ref": "#/components/schemas/TranscribeOutput",
+                        "default": "text"
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "language"
+                ],
+                "title": "Body_transcribe_providers_gemini_asr_transcribe_post"
+            },
+            "Body_translate_translate_post": {
+                "properties": {
+                    "text": {
+                        "type": "string",
+                        "title": "Text",
+                        "description": "Text to translate"
+                    },
+                    "input_language": {
+                        "type": "string",
+                        "title": "Input Language",
+                        "description": "Source language code"
+                    },
+                    "output_language": {
+                        "type": "string",
+                        "title": "Output Language",
+                        "description": "Target language code"
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "text",
+                    "input_language",
+                    "output_language"
+                ],
+                "title": "Body_translate_translate_post"
+            },
+            "ChatCompletionRequest": {
+                "properties": {
+                    "messages": {
+                        "anyOf": [
+                            {
+                                "items": {
+                                    "$ref": "#/components/schemas/ChatMessage"
+                                },
+                                "type": "array"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Messages"
+                    },
+                    "prompt": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "items": {
+                                    "type": "string"
+                                },
+                                "type": "array"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Prompt"
+                    },
+                    "max_tokens": {
+                        "anyOf": [
+                            {
+                                "type": "integer"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Max Tokens"
+                    },
+                    "stream": {
+                        "anyOf": [
+                            {
+                                "type": "boolean"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Stream"
+                    },
+                    "stream_options": {
+                        "anyOf": [
+                            {
+                                "additionalProperties": true,
+                                "type": "object"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Stream Options"
+                    },
+                    "stop": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "items": {
+                                    "type": "string"
+                                },
+                                "type": "array"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Stop"
+                    }
+                },
+                "additionalProperties": true,
+                "type": "object",
+                "title": "ChatCompletionRequest",
+                "description": "Chat completions payload.\n\nGeneration parameters (model, temperature, max_tokens, top_p, etc.) are\nserver-controlled via environment variables and must not be supplied by\ncallers. Extra fields (tools, tool_choice, chat_template_kwargs, etc.) are\nforwarded to the upstream unchanged."
+            },
+            "ChatMessage": {
+                "properties": {
+                    "role": {
+                        "type": "string",
+                        "title": "Role"
+                    },
+                    "content": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "items": {
+                                    "additionalProperties": true,
+                                    "type": "object"
+                                },
+                                "type": "array"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Content"
+                    },
+                    "name": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Name"
+                    }
+                },
+                "additionalProperties": true,
+                "type": "object",
+                "required": [
+                    "role"
+                ],
+                "title": "ChatMessage"
+            },
+            "CompletionRequest": {
+                "properties": {
+                    "prompt": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "items": {
+                                    "type": "string"
+                                },
+                                "type": "array"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Prompt"
+                    },
+                    "suffix": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Suffix"
+                    },
+                    "max_tokens": {
+                        "anyOf": [
+                            {
+                                "type": "integer"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Max Tokens"
+                    },
+                    "stream": {
+                        "anyOf": [
+                            {
+                                "type": "boolean"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Stream"
+                    },
+                    "stream_options": {
+                        "anyOf": [
+                            {
+                                "additionalProperties": true,
+                                "type": "object"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Stream Options"
+                    },
+                    "stop": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "items": {
+                                    "type": "string"
+                                },
+                                "type": "array"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Stop"
+                    },
+                    "messages": {
+                        "anyOf": [
+                            {
+                                "items": {
+                                    "additionalProperties": true,
+                                    "type": "object"
+                                },
+                                "type": "array"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Messages"
+                    }
+                },
+                "additionalProperties": true,
+                "type": "object",
+                "title": "CompletionRequest",
+                "description": "Legacy text-completions payload.\n\nGeneration parameters are server-controlled. If `messages` is present the\nconversation is answered by the chat upstream, so the model's chat\ntemplate is applied, and the reply is re-shaped into this endpoint's\nenvelope."
+            },
+            "EmbedRequest": {
+                "properties": {
+                    "inputs": {
+                        "anyOf": [
+                            {
+                                "items": {
+                                    "type": "string"
+                                },
+                                "type": "array"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Inputs"
+                    },
+                    "truncate": {
+                        "anyOf": [
+                            {
+                                "type": "boolean"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Truncate",
+                        "default": true
+                    }
+                },
+                "type": "object",
+                "title": "EmbedRequest",
+                "description": "Permissive request model for /embed.\n\n``truncate`` is accepted for backward compatibility with existing clients\nbut is not forwarded upstream."
+            },
+            "HTTPValidationError": {
+                "properties": {
+                    "detail": {
+                        "items": {
+                            "$ref": "#/components/schemas/ValidationError"
+                        },
+                        "type": "array",
+                        "title": "Detail"
+                    }
+                },
+                "type": "object",
+                "title": "HTTPValidationError"
+            },
+            "RerankProxyRequest": {
+                "properties": {
+                    "query": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Query"
+                    },
+                    "texts": {
+                        "anyOf": [
+                            {
+                                "items": {
+                                    "type": "string"
+                                },
+                                "type": "array"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Texts"
+                    },
+                    "return_documents": {
+                        "anyOf": [
+                            {
+                                "type": "boolean"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Return Documents"
+                    }
+                },
+                "additionalProperties": true,
+                "type": "object",
+                "title": "RerankProxyRequest",
+                "description": "Rerank payload for /rerank.\n\nAccepts `query` and `texts` (or the `documents` alias). Unknown fields\nare allowed so callers can pass provider extras such as `model` and\n`top_n`."
+            },
+            "TTSOutput": {
+                "type": "string",
+                "enum": [
+                    "audio",
+                    "url"
+                ],
+                "title": "TTSOutput"
+            },
+            "TTSStatusResponse": {
+                "properties": {
+                    "status": {
+                        "type": "string",
+                        "title": "Status"
+                    },
+                    "error": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Error"
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "status"
+                ],
+                "title": "TTSStatusResponse"
+            },
+            "TranscribeOutput": {
+                "type": "string",
+                "enum": [
+                    "text"
+                ],
+                "title": "TranscribeOutput",
+                "description": "The only supported output.\n\nStoring the transcript is the caller's job, so there is no `url` mode\nhere any more; the field remains so existing callers that send\n``output_type=text`` keep validating."
+            },
+            "TranscriptionResponse": {
+                "properties": {
+                    "text": {
+                        "type": "string",
+                        "title": "Text"
+                    },
+                    "language": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Language"
+                    },
+                    "processing_applied": {
+                        "items": {
+                            "type": "string"
+                        },
+                        "type": "array",
+                        "title": "Processing Applied",
+                        "default": []
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "text"
+                ],
+                "title": "TranscriptionResponse"
+            },
+            "ValidationError": {
+                "properties": {
+                    "loc": {
+                        "items": {
+                            "anyOf": [
+                                {
+                                    "type": "string"
+                                },
+                                {
+                                    "type": "integer"
+                                }
+                            ]
+                        },
+                        "type": "array",
+                        "title": "Location"
+                    },
+                    "msg": {
+                        "type": "string",
+                        "title": "Message"
+                    },
+                    "type": {
+                        "type": "string",
+                        "title": "Error Type"
+                    },
+                    "input": {
+                        "title": "Input"
+                    },
+                    "ctx": {
+                        "type": "object",
+                        "title": "Context"
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "loc",
+                    "msg",
+                    "type"
+                ],
+                "title": "ValidationError"
+            }
+        }
+    }
+}

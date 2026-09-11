@@ -1,18 +1,28 @@
 import os
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
     APP_NAME: str = "Outbound Voice Decision Tree API"
     HOST: str = "127.0.0.1"
     PORT: int = 8000
     
+    # WiseAI Base
+    WISEAI_BASE_URL: str = "https://dev-models.wiseai.wiseyak.com"
+
     # WiseAI LLM Endpoint
-    LLM_API_URL: str = os.getenv(
-        "LLM_API_URL",
-        "https://dev-models.wiseai.wiseyak.com/v1/chat/completions"
-    )
+    LLM_API_URL: str = "https://dev-models.wiseai.wiseyak.com/v1/chat/completions"
     LLM_TIMEOUT: float = 60.0
     ENABLE_THINKING: bool = False
+    
+    # WiseAI ASR Endpoint (/asr/transcribe-from-stream)
+    ASR_API_URL: str = "https://dev-models.wiseai.wiseyak.com/asr/transcribe-from-stream"
+    ASR_TIMEOUT: float = 30.0
+    ASR_LANGUAGE: str = "en"
+
+    # WiseAI TTS Endpoint (/tts/generate_from_text)
+    TTS_API_URL: str = "https://dev-models.wiseai.wiseyak.com/tts/generate_from_text"
+    TTS_TIMEOUT: float = 45.0
+    TTS_DEFAULT_VOICE: str = "Prakash_0"
     
     # CORS
     CORS_ORIGINS: list[str] = [
@@ -20,5 +30,11 @@ class Settings(BaseSettings):
         "http://127.0.0.1:5173",
         "http://localhost:3000",
     ]
+
+    model_config = SettingsConfigDict(
+        env_file=os.path.join(os.path.dirname(__file__), ".env"),
+        env_file_encoding="utf-8",
+        extra="ignore",
+    )
 
 settings = Settings()

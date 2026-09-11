@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import {
   ArrowLeft,
   Phone,
@@ -6,11 +6,10 @@ import {
   Volume2,
   VolumeX,
   Mic,
+  MicOff,
+  Keyboard,
   Send,
   Sparkles,
-  Clock,
-  Variable,
-  Wand2,
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import {
@@ -21,6 +20,7 @@ import {
   SimulationMessage,
 } from '../../types/flow';
 import { telephoneAudio, speakText, stopSpeech } from '../../utils/speech';
+import { VADAudioEngine } from '../../utils/vadRecorder';
 
 interface VoiceCallPageProps {
   nodes: CustomFlowNode[];
@@ -52,15 +52,34 @@ export const VoiceCallPage: React.FC<VoiceCallPageProps> = ({
     activeEdgeId: null,
   });
 
-  const [inputText, setInputText] = useState('');
-  const [isRecording, setIsRecording] = useState(false);
-  const transcriptEndRef = useRef<HTMLDivElement>(null);
-  const timerRef = useRef<any>(null);
+  // Voice Activity Detection & Live Audio
+  const [userVoiceLevel, setUserVoiceLevel] = useState(0); // 0 to 100
+  const [isUserSpeaking, setIsUserSpeaking] = useState(false);
+  const [isTranscribing, setIsTranscribing] = useState(false);
+  const [micEnabled, setMicEnabled] = useState(true);
 
-  // Auto-scroll transcript
+  // Frontend Real-time Streaming
+  const [activeStreamingMsgId, setActiveStreamingMsgId] = useState<string | null>(null);
+  const [streamingText, setStreamingText] = useState('');
+  const [showInputDrawer, setShowInputDrawer] = useState(false);
+  const [inputText, setInputText] = useState('');
+  const [isRouting, setIsRouting] = useState(false);
+
+  const vadEngineRef = useRef<VADAudioEngine | null>(null);
+  const timerRef = useRef<any>(null);
+  const streamIntervalRef = useRef<any>(null);
+  const chatScrollRef = useRef<HTMLDivElement>(null);
+
+  // Auto-scroll chat to bottom
+  const scrollToBottom = () => {
+    if (chatScrollRef.current) {
+      chatScrollRef.current.scrollTop = chatScrollRef.current.scrollHeight;
+    }
+  };
+
   useEffect(() => {
-    transcriptEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [simState.transcript]);
+    scrollToBottom();
+  }, [simState.transcript, streamingText, isUserSpeaking, isRouting, isTranscribing]);
 
   // Call duration counter
   useEffect(() => {
@@ -79,6 +98,18 @@ export const VoiceCallPage: React.FC<VoiceCallPageProps> = ({
     };
   }, [simState.status]);
 
+  // Clean up on unmount
+  useEffect(() => {
+    return () => {
+      stopSpeech();
+      if (streamIntervalRef.current) clearInterval(streamIntervalRef.current);
+      if (vadEngineRef.current) {
+        vadEngineRef.current.stop();
+        vadEngineRef.current = null;
+      }
+    };
+  }, []);
+
   const interpolate = (text: string, currentVars: Record<string, any>) => {
     let result = text;
     Object.entries(currentVars).forEach(([k, v]) => {
@@ -88,6 +119,118 @@ export const VoiceCallPage: React.FC<VoiceCallPageProps> = ({
     result = result.replace(/\{\{company\}\}/g, knowledge.leadProfile.company);
     result = result.replace(/\{\{phone\}\}/g, knowledge.leadProfile.phone);
     return result;
+  };
+
+  const formatTime = (secs: number) => {
+    const m = Math.floor(secs / 60)
+      .toString()
+      .padStart(2, '0');
+    const s = (secs % 60).toString().padStart(2, '0');
+    return `${m}:${s}`;
+  };
+
+  // Stream text word-by-word into the active message bubble
+  const streamWords = (msgId: string, fullText: string, onFinish?: () => void) => {
+    if (streamIntervalRef.current) clearInterval(streamIntervalRef.current);
+
+    setActiveStreamingMsgId(msgId);
+    setStreamingText('');
+    const words = fullText.split(' ');
+    let currentIdx = 0;
+
+    // Word step pace
+    const stepMs = Math.max(30, Math.min(65, 2200 / Math.max(words.length, 1)));
+
+    streamIntervalRef.current = setInterval(() => {
+      currentIdx++;
+      const currentChunk = words.slice(0, currentIdx).join(' ');
+      setStreamingText(currentChunk);
+
+      if (currentIdx >= words.length) {
+        clearInterval(streamIntervalRef.current);
+        streamIntervalRef.current = null;
+        setActiveStreamingMsgId(null);
+        setStreamingText('');
+
+        // Ensure full text is committed in state
+        setSimState((prev) => ({
+          ...prev,
+          transcript: prev.transcript.map((m) => (m.id === msgId ? { ...m, text: fullText } : m)),
+        }));
+
+        if (onFinish) onFinish();
+      }
+    }, stepMs);
+  };
+
+  // Setup VAD Engine when call connects
+  useEffect(() => {
+    if (simState.status === 'connected' && micEnabled) {
+      if (!vadEngineRef.current) {
+        vadEngineRef.current = new VADAudioEngine({
+          energyThreshold: 14,
+          silenceDurationMs: 1100,
+          onVoiceActivity: (level, speaking) => {
+            if (simState.isAiSpeaking || isRouting) {
+              setUserVoiceLevel(0);
+              setIsUserSpeaking(false);
+              return;
+            }
+            setUserVoiceLevel(level);
+            setIsUserSpeaking(speaking);
+          },
+          onSpeechStart: () => {
+            if (!simState.isAiSpeaking && !isRouting) {
+              setIsUserSpeaking(true);
+            }
+          },
+          onSpeechEnd: async (wavBlob: Blob) => {
+            if (simState.status !== 'connected' || simState.isAiSpeaking || isRouting) return;
+
+            setIsTranscribing(true);
+            try {
+              const formData = new FormData();
+              formData.append('file', wavBlob, 'speech.wav');
+              formData.append('language', 'en');
+
+              const response = await fetch('/api/call/asr', {
+                method: 'POST',
+                body: formData,
+              });
+
+              if (response.ok) {
+                const data = await response.json();
+                const text = (data.text || '').trim();
+                setIsTranscribing(false);
+                if (text && text.length > 1 && !text.toLowerCase().includes('nope')) {
+                  handleCallerResponse(text);
+                }
+              } else {
+                setIsTranscribing(false);
+              }
+            } catch (err) {
+              console.warn('VAD ASR request error:', err);
+              setIsTranscribing(false);
+            }
+          },
+          onError: (err) => {
+            console.warn('Microphone/VAD init error:', err);
+          },
+        });
+        vadEngineRef.current.start();
+      }
+    } else {
+      if (vadEngineRef.current) {
+        vadEngineRef.current.stop();
+        vadEngineRef.current = null;
+      }
+      setUserVoiceLevel(0);
+      setIsUserSpeaking(false);
+    }
+  }, [simState.status, micEnabled, simState.isAiSpeaking, isRouting]);
+
+  const toggleMic = () => {
+    setMicEnabled((prev) => !prev);
   };
 
   const getGreetingNode = () => {
@@ -107,16 +250,17 @@ export const VoiceCallPage: React.FC<VoiceCallPageProps> = ({
     } else if (node.data.type === 'knowledge') {
       scriptToSpeak = interpolate(nodeData.rebuttalScript || '', vars);
     } else if (node.data.type === 'action') {
-      scriptToSpeak = `Executing action: ${nodeData.label || 'Action'}`;
+      scriptToSpeak = `Confirming your ${nodeData.label || 'selection'} right now.`;
     } else if (node.data.type === 'hangup') {
-      scriptToSpeak = interpolate(nodeData.closingScript || 'Thank you, goodbye!', vars);
+      scriptToSpeak = interpolate(nodeData.closingScript || 'Thank you for your time. Have a great day!', vars);
     }
 
+    const msgId = `msg-${Date.now()}`;
     const msg: SimulationMessage = {
-      id: `msg-${Date.now()}`,
+      id: msgId,
       speaker: node.data.type === 'action' ? 'system' : 'agent',
-      text: scriptToSpeak,
-      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+      text: '', // Start empty and stream words into it
+      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
       nodeId: node.id,
     };
 
@@ -124,6 +268,9 @@ export const VoiceCallPage: React.FC<VoiceCallPageProps> = ({
       ...prev,
       transcript: [...prev.transcript, msg],
     }));
+
+    // Stream words into the message bubble in real time
+    streamWords(msgId, scriptToSpeak);
 
     if (simState.audioTtsEnabled && node.data.type !== 'action') {
       speakText(scriptToSpeak, knowledge.agentPersona.speakingRate || 1.0, 1.0, () => {
@@ -134,7 +281,7 @@ export const VoiceCallPage: React.FC<VoiceCallPageProps> = ({
       setTimeout(() => {
         setSimState((prev) => ({ ...prev, isAiSpeaking: false }));
         handlePostSpeech(node, vars);
-      }, 1000);
+      }, 1200);
     }
   };
 
@@ -171,14 +318,7 @@ export const VoiceCallPage: React.FC<VoiceCallPageProps> = ({
       status: 'ringing',
       activeNodeId: null,
       previousNodeId: null,
-      transcript: [
-        {
-          id: `sys-${Date.now()}`,
-          speaker: 'system',
-          text: `Dialing ${knowledge.leadProfile.name} (${knowledge.leadProfile.phone})...`,
-          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        },
-      ],
+      transcript: [],
       variables: {
         lead_name: knowledge.leadProfile.name,
         company: knowledge.leadProfile.company,
@@ -198,22 +338,13 @@ export const VoiceCallPage: React.FC<VoiceCallPageProps> = ({
       setSimState((prev) => ({
         ...prev,
         status: 'connected',
-        transcript: [
-          ...prev.transcript,
-          {
-            id: `sys-pickup-${Date.now()}`,
-            speaker: 'system',
-            text: `[Call Connected] ${knowledge.leadProfile.name} answered.`,
-            timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-          },
-        ],
       }));
 
       const greetingNode = getGreetingNode();
       if (greetingNode) {
         executeNode(greetingNode);
       }
-    }, 2200);
+    }, 1800);
   };
 
   const endCall = () => {
@@ -221,34 +352,17 @@ export const VoiceCallPage: React.FC<VoiceCallPageProps> = ({
     telephoneAudio.stopRingback();
     telephoneAudio.playHangup();
 
+    if (vadEngineRef.current) {
+      vadEngineRef.current.stop();
+      vadEngineRef.current = null;
+    }
+
     setSimState((prev) => ({
       ...prev,
       status: 'ended',
       isAiSpeaking: false,
-      transcript: [
-        ...prev.transcript,
-        {
-          id: `sys-end-${Date.now()}`,
-          speaker: 'system',
-          text: '[Call Ended]',
-          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        },
-      ],
     }));
   };
-
-  const [isRouting, setIsRouting] = useState(false);
-  const [backendStatus, setBackendStatus] = useState<'checking' | 'online' | 'offline'>('checking');
-
-  useEffect(() => {
-    fetch('/api/health')
-      .then((res) => res.json())
-      .then((d) => {
-        if (d.status === 'online') setBackendStatus('online');
-        else setBackendStatus('offline');
-      })
-      .catch(() => setBackendStatus('offline'));
-  }, []);
 
   const handleCallerResponse = async (userText: string) => {
     if (!userText.trim() || simState.status !== 'connected') return;
@@ -257,15 +371,14 @@ export const VoiceCallPage: React.FC<VoiceCallPageProps> = ({
       id: `lead-${Date.now()}`,
       speaker: 'lead',
       text: userText,
-      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
     };
 
     const newTranscript = [...simState.transcript, userMsg];
     setInputText('');
+    setShowInputDrawer(false);
     setSimState((prev) => ({ ...prev, transcript: newTranscript }));
     setIsRouting(true);
-
-    const currentNode = nodes.find((n) => n.id === simState.activeNodeId);
 
     try {
       // POST TO FASTAPI PYTHON BACKEND
@@ -287,14 +400,15 @@ export const VoiceCallPage: React.FC<VoiceCallPageProps> = ({
         const result = await response.json();
         setIsRouting(false);
 
-        // 1. CAMPAIGN KNOWLEDGE LOOKUP (Packages, Mbps, Discounts, Router FAQs)
+        // 1. CAMPAIGN KNOWLEDGE LOOKUP
         if (result.knowledge_invoked) {
+          const kMsgId = `ai-knowledge-${Date.now()}`;
           const knowledgeMsg: SimulationMessage = {
-            id: `ai-knowledge-${Date.now()}`,
+            id: kMsgId,
             speaker: 'agent',
-            text: result.ai_response_text,
+            text: '',
             timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-            intentMatched: `💡 Campaign Knowledge: ${result.knowledge_topic || 'Inquiry'}`,
+            intentMatched: result.knowledge_topic || 'Campaign Knowledge',
           };
 
           setSimState((prev) => ({
@@ -303,17 +417,19 @@ export const VoiceCallPage: React.FC<VoiceCallPageProps> = ({
             isAiSpeaking: true,
           }));
 
+          streamWords(kMsgId, result.ai_response_text);
+
           if (simState.audioTtsEnabled) {
             speakText(result.ai_response_text, knowledge.agentPersona.speakingRate || 1.0, 1.0, () => {
               setSimState((prev) => ({ ...prev, isAiSpeaking: false }));
             });
           } else {
-            setTimeout(() => setSimState((prev) => ({ ...prev, isAiSpeaking: false })), 1000);
+            setTimeout(() => setSimState((prev) => ({ ...prev, isAiSpeaking: false })), 1200);
           }
           return;
         }
 
-        // 2. LLM INTENT ROUTING TO NEXT NODE (Q3 vs Q4 vs Action vs Rebuttal)
+        // 2. LLM INTENT ROUTING TO NEXT NODE
         if (result.next_node_id) {
           const nextNode = nodes.find((n) => n.id === result.next_node_id);
           if (nextNode) {
@@ -330,42 +446,12 @@ export const VoiceCallPage: React.FC<VoiceCallPageProps> = ({
         }
       }
     } catch (apiError) {
-      console.warn('FastAPI backend routing error, engaging client fallback:', apiError);
+      console.warn('Backend routing fallback:', apiError);
     }
 
     setIsRouting(false);
 
-    // CLIENT FALLBACK TRAVERSAL
-    const lower = userText.toLowerCase();
-
-    // Global objections
-    const matchedObj = knowledge.globalObjections.find((obj) =>
-      lower.includes(obj.trigger.toLowerCase().replace(/[?.,!]/g, ''))
-    );
-    if (matchedObj) {
-      const rebuttalMsg: SimulationMessage = {
-        id: `ai-rebuttal-${Date.now()}`,
-        speaker: 'agent',
-        text: interpolate(matchedObj.response, simState.variables),
-        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        intentMatched: 'Global Objection Intercepted',
-      };
-      setSimState((prev) => ({
-        ...prev,
-        transcript: [...newTranscript, rebuttalMsg],
-        isAiSpeaking: true,
-      }));
-      if (simState.audioTtsEnabled) {
-        speakText(matchedObj.response, knowledge.agentPersona.speakingRate || 1.0, 1.0, () => {
-          setSimState((prev) => ({ ...prev, isAiSpeaking: false }));
-        });
-      } else {
-        setTimeout(() => setSimState((prev) => ({ ...prev, isAiSpeaking: false })), 1000);
-      }
-      return;
-    }
-
-    // Outgoing edges fallback
+    // Fallback traversal
     const outgoingEdges = edges.filter((e) => e.source === simState.activeNodeId);
     if (outgoingEdges.length > 0) {
       const nextNode = nodes.find((n) => n.id === outgoingEdges[0].target);
@@ -375,328 +461,297 @@ export const VoiceCallPage: React.FC<VoiceCallPageProps> = ({
       }
     }
 
+    const fallbackReply = 'Understood. Could you share a bit more about that?';
+    const fMsgId = `ai-ack-${Date.now()}`;
     setSimState((prev) => ({
       ...prev,
       transcript: [
         ...newTranscript,
         {
-          id: `ai-ack-${Date.now()}`,
+          id: fMsgId,
           speaker: 'agent',
-          text: 'Understood. Could you clarify that for me?',
+          text: '',
           timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
         },
       ],
+      isAiSpeaking: true,
     }));
+    streamWords(fMsgId, fallbackReply, () => {
+      setSimState((prev) => ({ ...prev, isAiSpeaking: false }));
+    });
   };
 
-  const getContextualResponseChips = () => {
+  // Concise quick chips for testing without speaking
+  const quickSuggestions = useMemo(() => {
     const currentNode = nodes.find((n) => n.id === simState.activeNodeId);
-    if (!currentNode) return ['Yes, confirmed', 'Need to reschedule', 'I am busy right now'];
+    if (!currentNode) return ['Yes, please', 'Tell me more', 'Not right now'];
 
     if (currentNode.data.type === 'greeting') {
-      return [
-        `Yes, this is ${knowledge.leadProfile.name}`,
-        'What is this call about?',
-        'Leave a message (Voicemail)',
-        'I am in a meeting right now',
-      ];
+      return ['Yes, speaking', 'What is this about?', 'Leave a message'];
     }
     if (currentNode.data.type === 'question') {
-      // Contextual chips for ISP renewal and general decision questions
-      if (currentNode.id === 'node-q2-usage') {
-        return [
-          'What packages and Mbps speeds do you offer?',
-          'We stream 4K video and work from home',
-          'Just basic browsing for 1-2 people',
-          'What discount do I get for annual renewal?',
-          'Do I get a new router?',
-          'I am not interested in renewing',
-        ];
-      }
-      return [
-        'Yes, that sounds great',
-        'What speeds are available?',
-        'Is there any discount?',
-        'How much will this cost?',
-        'Do I get a new Wi-Fi router?',
-        'Cancel, not interested',
-      ];
+      return ['What speeds are available?', 'Is there a discount?', 'Sounds good', 'Not interested'];
     }
     if (currentNode.data.type === 'knowledge') {
-      return [
-        'That makes sense, lock in the discount',
-        'Can I get free Wi-Fi 6 router?',
-        'Still too expensive for me',
-      ];
+      return ['Lock in the discount', 'Does it include a router?', 'Still too expensive'];
     }
     return ['Sounds good', 'Thank you', 'Goodbye'];
-  };
+  }, [simState.activeNodeId, nodes]);
 
-  const formatTime = (secs: number) => {
-    const m = Math.floor(secs / 60)
-      .toString()
-      .padStart(2, '0');
-    const s = (secs % 60).toString().padStart(2, '0');
-    return `${m}:${s}`;
-  };
-
-  const toggleSpeechRecognition = () => {
-    const SpeechRec = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-    if (!SpeechRec) {
-      alert('Speech Recognition is not supported in this browser. Please use text input.');
-      return;
-    }
-
-    if (isRecording) {
-      setIsRecording(false);
-      return;
-    }
-
-    try {
-      const recognition = new SpeechRec();
-      recognition.continuous = false;
-      recognition.interimResults = false;
-      recognition.lang = 'en-US';
-
-      recognition.onstart = () => setIsRecording(true);
-      recognition.onresult = (event: any) => {
-        const transcript = event.results[0][0].transcript;
-        setIsRecording(false);
-        if (transcript) {
-          handleCallerResponse(transcript);
-        }
-      };
-      recognition.onerror = () => setIsRecording(false);
-      recognition.onend = () => setIsRecording(false);
-
-      recognition.start();
-    } catch (e) {
-      setIsRecording(false);
-    }
-  };
-
-  const activeNode = nodes.find((n) => n.id === simState.activeNodeId);
+  // Generate dynamic kinetic wave bars based on real-time VAD voice activity or AI speech
+  const waveBars = useMemo(() => {
+    return Array.from({ length: 12 }).map((_, i) => {
+      if (isUserSpeaking && userVoiceLevel > 0) {
+        const variance = Math.sin((i / 11) * Math.PI) * 0.8 + 0.2;
+        const h = Math.min(24, Math.max(4, (userVoiceLevel / 100) * 24 * variance));
+        return Math.round(h);
+      } else if (simState.isAiSpeaking) {
+        const wave = Math.sin((i / 11) * Math.PI * 2 + Date.now() / 200) * 0.5 + 0.5;
+        return Math.round(5 + wave * 16);
+      }
+      return 3;
+    });
+  }, [isUserSpeaking, userVoiceLevel, simState.isAiSpeaking]);
 
   return (
-    <div className="voice-call-page">
-      {/* Header Bar */}
-      <header className="voice-header">
-        <button className="btn-clean-back" onClick={onBackToCanvas}>
-          <ArrowLeft size={14} /> Back to Flow Canvas
+    <div className="minimal-call-canvas">
+      {/* Sleek Top Navigation Bar */}
+      <header className="minimal-call-header">
+        <button className="minimal-btn-back" onClick={onBackToCanvas} title="Return to Studio">
+          <ArrowLeft size={16} />
+          <span>Studio</span>
         </button>
 
-        <div className="voice-header-center">
-          <div className="call-info-block">
-            <span className="callee-name">{knowledge.leadProfile.name}</span>
-            <span className="callee-phone">{knowledge.leadProfile.phone}</span>
-          </div>
-          <div className="call-persona-block">
-            <span className="persona-label">Agent:</span>
-            <span className="persona-name">{knowledge.agentPersona.name} ({knowledge.agentPersona.company})</span>
+        <div className="minimal-header-center">
+          <span className="callee-name-title">{knowledge.leadProfile.name}</span>
+          <div className="call-status-pill">
+            <span
+              className={`status-dot ${
+                simState.status === 'connected' ? 'connected' : simState.status === 'ringing' ? 'ringing' : 'idle'
+              }`}
+            />
+            <span>
+              {simState.status === 'connected'
+                ? formatTime(simState.callDurationSeconds)
+                : simState.status === 'ringing'
+                ? 'Calling...'
+                : 'Ready'}
+            </span>
           </div>
         </div>
 
-        <div className="voice-header-right">
-          <div className={`backend-indicator ${backendStatus}`} title="FastAPI Python Backend Status">
-            <span className="indicator-dot" />
-            <span>FastAPI Backend: {backendStatus}</span>
-          </div>
+        <div className="minimal-header-actions">
           <button
-            className={`btn-icon-clean ${simState.audioTtsEnabled ? 'active' : ''}`}
+            className={`minimal-icon-btn ${simState.audioTtsEnabled ? 'active' : ''}`}
             onClick={() => {
               stopSpeech();
               setSimState((prev) => ({ ...prev, audioTtsEnabled: !prev.audioTtsEnabled }));
             }}
-            title={simState.audioTtsEnabled ? 'Speech Audio TTS On' : 'Speech Audio Muted'}
+            title={simState.audioTtsEnabled ? 'Sound Enabled' : 'Sound Muted'}
           >
-            {simState.audioTtsEnabled ? <Volume2 size={16} /> : <VolumeX size={16} />}
+            {simState.audioTtsEnabled ? <Volume2 size={17} /> : <VolumeX size={17} />}
           </button>
         </div>
       </header>
 
-      {/* Main Call View: Split into Status/Dialer & Real-time Transcript */}
-      <div className="voice-main-content">
-        {/* Left Telephony Status Column */}
-        <div className="telephony-column">
-          <div className="telephony-card">
-            {/* Status Visualizer Circle */}
-            <div className={`avatar-status-circle ${simState.status}`}>
-              {simState.isAiSpeaking ? (
-                <div className="voice-wave-bars">
-                  <span />
-                  <span />
-                  <span />
-                  <span />
-                  <span />
-                </div>
-              ) : (
-                <Phone size={28} className="phone-icon-center" />
-              )}
-            </div>
-
-            <div className="call-status-headline">
-              {simState.status === 'idle' && 'Ready to Dial'}
-              {simState.status === 'ringing' && 'Ringing Outbound...'}
-              {simState.status === 'connected' && 'Call Connected'}
-              {simState.status === 'ended' && 'Call Concluded'}
-            </div>
-
-            <div className="call-timer-badge">
-              <Clock size={13} />
-              <span>{formatTime(simState.callDurationSeconds)}</span>
-            </div>
-
-            {/* Active Flow Node Indicator */}
-            {activeNode && simState.status === 'connected' && (
-              <div className="active-path-box">
-                <span className="active-path-tag">Active Decision Tree Step:</span>
-                <span className="active-path-name">{activeNode.data.label}</span>
-                <span className="active-path-type">({activeNode.data.type} node)</span>
-              </div>
-            )}
-
-            {/* Primary Action Dial / Hangup */}
-            <div className="telephony-actions">
-              {simState.status === 'idle' || simState.status === 'ended' ? (
-                <button className="btn-call-dial" onClick={startCall}>
-                  <Phone size={16} />
-                  <span>Start Outbound Call</span>
-                </button>
-              ) : (
-                <button className="btn-call-hangup" onClick={endCall}>
-                  <PhoneOff size={16} />
-                  <span>End Call</span>
-                </button>
-              )}
-            </div>
-          </div>
-
-          {/* Session Variables Card */}
-          <div className="session-data-card">
-            <div className="session-data-head">
-              <Variable size={13} />
-              <span>Extracted Call Variables</span>
-            </div>
-            <div className="session-data-list">
-              {Object.entries(simState.variables).map(([k, v]) => (
-                <div key={k} className="session-data-row">
-                  <span className="data-key">{k}</span>
-                  <span className="data-val">{String(v)}</span>
-                </div>
-              ))}
-              {simState.disposition && (
-                <div className="session-data-row highlight">
-                  <span className="data-key">final_disposition</span>
-                  <span className="data-val">{simState.disposition}</span>
-                </div>
-              )}
-            </div>
-          </div>
+      {/* Top Compact Visualizer & Voice Activity Ribbon */}
+      <div className="minimal-voice-ribbon">
+        <div
+          className={`mini-kinetic-orb ${
+            isUserSpeaking
+              ? 'user-active'
+              : simState.isAiSpeaking
+              ? 'ai-active'
+              : simState.status === 'connected'
+              ? 'listening'
+              : ''
+          }`}
+        >
+          <Phone size={14} className="mini-phone-icon" />
         </div>
 
-        {/* Right Real-time Transcription Stream Column */}
-        <div className="transcript-column">
-          <div className="transcript-header">
-            <span className="transcript-title">Real-Time Call Transcript</span>
-            <span className="transcript-count">{simState.transcript.length} messages</span>
-          </div>
-
-          <div className="transcript-messages-scroller">
-            {simState.transcript.length === 0 ? (
-              <div className="empty-transcript-state">
-                <p>Click <strong>"Start Outbound Call"</strong> to initiate the AI voice outreach session.</p>
-              </div>
-            ) : (
-              simState.transcript.map((msg) => (
-                <div key={msg.id} className={`clean-msg-row ${msg.speaker}`}>
-                  <div className="clean-msg-bubble">
-                    <div className="msg-meta-bar">
-                      <span className="msg-speaker">
-                        {msg.speaker === 'agent'
-                          ? knowledge.agentPersona.name
-                          : msg.speaker === 'lead'
-                          ? knowledge.leadProfile.name
-                          : 'System Event'}
-                      </span>
-                      <span className="msg-time">{msg.timestamp}</span>
-                    </div>
-                    <p className="msg-content">{msg.text}</p>
-                    {msg.intentMatched && (
-                      <span className="intent-matched-pill">{msg.intentMatched}</span>
-                    )}
-                  </div>
-                </div>
-              ))
-            )}
-            {isRouting && (
-              <div className="clean-msg-row agent thinking-row">
-                <div className="clean-msg-bubble thinking-bubble">
-                  <Sparkles size={12} className="thinking-icon spin" />
-                  <span className="thinking-text">FastAPI LLM Intent Router evaluating customer response & campaign knowledge...</span>
-                </div>
-              </div>
-            )}
-            <div ref={transcriptEndRef} />
-          </div>
-
-          {/* Contextual Caller Responses & Input Bar */}
-          <div className="caller-interaction-bar">
-            {simState.status === 'connected' && (
-              <div className="quick-chips-wrapper">
-                <span className="chips-title">
-                  <Wand2 size={11} /> Quick Lead Responses:
-                </span>
-                <div className="chips-list">
-                  {getContextualResponseChips().map((chip) => (
-                    <button
-                      key={chip}
-                      className="clean-chip-btn"
-                      onClick={() => handleCallerResponse(chip)}
-                    >
-                      "{chip}"
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            <div className="transcript-input-row">
-              <button
-                className={`btn-icon-clean ${isRecording ? 'recording' : ''}`}
-                onClick={toggleSpeechRecognition}
-                title="Speak using microphone"
-                disabled={simState.status !== 'connected'}
-              >
-                <Mic size={16} />
-              </button>
-
-              <input
-                type="text"
-                className="transcript-input"
-                placeholder={
-                  simState.status === 'connected'
-                    ? 'Type lead response or select a quick response above...'
-                    : 'Call not active — click Start Outbound Call to begin'
-                }
-                value={inputText}
-                onChange={(e) => setInputText(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') handleCallerResponse(inputText);
-                }}
-                disabled={simState.status !== 'connected'}
-              />
-
-              <button
-                className="btn-send-clean"
-                onClick={() => handleCallerResponse(inputText)}
-                disabled={simState.status !== 'connected' || !inputText.trim()}
-              >
-                <Send size={14} />
-              </button>
-            </div>
-          </div>
+        <div className="mini-wave-bars">
+          {waveBars.map((height, i) => (
+            <span
+              key={i}
+              className={`mini-wave-bar ${
+                isUserSpeaking ? 'user' : simState.isAiSpeaking ? 'agent' : 'quiet'
+              }`}
+              style={{ height: `${height}px` }}
+            />
+          ))}
         </div>
+
+        <span className="mini-status-text">
+          {isTranscribing
+            ? 'Transcribing speech...'
+            : isRouting
+            ? 'Thinking...'
+            : isUserSpeaking
+            ? 'You are speaking...'
+            : simState.isAiSpeaking
+            ? `${knowledge.agentPersona.name} speaking...`
+            : simState.status === 'connected'
+            ? 'Listening (hands-free)...'
+            : simState.status === 'ringing'
+            ? 'Connecting...'
+            : 'Press Call to begin'}
+        </span>
       </div>
+
+      {/* Main Real-time Chat Stream: Left (Agent) and Right (User) */}
+      <main className="realtime-chat-scroller" ref={chatScrollRef}>
+        {simState.transcript.length === 0 ? (
+          <div className="chat-empty-hint">
+            <p>Ready to start call. Press the green call button below to begin.</p>
+          </div>
+        ) : (
+          simState.transcript.map((msg) => {
+            const isAgent = msg.speaker === 'agent';
+            const isLead = msg.speaker === 'lead';
+            const isCurrentlyStreaming = msg.id === activeStreamingMsgId;
+            const displayText = isCurrentlyStreaming ? streamingText || '...' : msg.text;
+
+            return (
+              <div
+                key={msg.id}
+                className={`chat-msg-row ${isAgent ? 'left-agent' : isLead ? 'right-user' : 'center-system'}`}
+              >
+                <div className="chat-bubble">
+                  <div className="bubble-meta">
+                    <span className="bubble-speaker">
+                      {isAgent
+                        ? knowledge.agentPersona.name
+                        : isLead
+                        ? knowledge.leadProfile.name
+                        : 'System'}
+                    </span>
+                    <span className="bubble-timestamp">{msg.timestamp}</span>
+                  </div>
+
+                  <p className="bubble-text">
+                    {displayText}
+                    {isCurrentlyStreaming && <span className="stream-cursor">▌</span>}
+                  </p>
+                </div>
+              </div>
+            );
+          })
+        )}
+
+        {/* Live Left Agent Thinking Bubble */}
+        {isRouting && (
+          <div className="chat-msg-row left-agent">
+            <div className="chat-bubble thinking">
+              <div className="typing-dots">
+                <span />
+                <span />
+                <span />
+              </div>
+              <span className="thinking-hint">Routing...</span>
+            </div>
+          </div>
+        )}
+
+        {/* Live Right User Speaking Bubble (VAD Active) */}
+        {isUserSpeaking && (
+          <div className="chat-msg-row right-user">
+            <div className="chat-bubble user-speaking-bubble">
+              <div className="speaking-wave-dots">
+                <span />
+                <span />
+                <span />
+                <span />
+              </div>
+              <span className="user-live-hint">Speaking...</span>
+            </div>
+          </div>
+        )}
+
+        {/* Right User Transcribing Bubble */}
+        {isTranscribing && (
+          <div className="chat-msg-row right-user">
+            <div className="chat-bubble user-transcribing-bubble">
+              <Sparkles size={13} className="spin" />
+              <span>Transcribing voice...</span>
+            </div>
+          </div>
+        )}
+      </main>
+
+      {/* Quick Suggestion Chips (Minimalist) */}
+      {simState.status === 'connected' && !simState.isAiSpeaking && !isUserSpeaking && (
+        <div className="minimal-chips-row">
+          {quickSuggestions.map((text) => (
+            <button
+              key={text}
+              className="minimal-chip"
+              onClick={() => handleCallerResponse(text)}
+            >
+              "{text}"
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* Optional Minimalist Text Input Drawer */}
+      {showInputDrawer && simState.status === 'connected' && (
+        <div className="minimal-text-bar-container">
+          <div className="minimal-text-bar">
+            <input
+              type="text"
+              className="minimal-text-input"
+              placeholder="Type reply and press Enter..."
+              value={inputText}
+              autoFocus
+              onChange={(e) => setInputText(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') handleCallerResponse(inputText);
+              }}
+            />
+            <button
+              className="minimal-btn-send"
+              disabled={!inputText.trim()}
+              onClick={() => handleCallerResponse(inputText)}
+            >
+              <Send size={15} />
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Floating Bottom Control Island */}
+      <footer className="minimal-call-controls">
+        {simState.status === 'connected' && (
+          <button
+            className={`control-btn ${micEnabled ? (isUserSpeaking ? 'speaking' : 'active') : 'muted'}`}
+            onClick={toggleMic}
+            title={micEnabled ? 'Mute Microphone' : 'Unmute Microphone'}
+          >
+            {micEnabled ? <Mic size={20} /> : <MicOff size={20} />}
+          </button>
+        )}
+
+        {simState.status === 'idle' || simState.status === 'ended' ? (
+          <button className="control-btn call-start" onClick={startCall} title="Start Call">
+            <Phone size={22} />
+          </button>
+        ) : (
+          <button className="control-btn call-end" onClick={endCall} title="End Call">
+            <PhoneOff size={22} />
+          </button>
+        )}
+
+        {simState.status === 'connected' && (
+          <button
+            className={`control-btn ${showInputDrawer ? 'active' : ''}`}
+            onClick={() => setShowInputDrawer((prev) => !prev)}
+            title="Type Response"
+          >
+            <Keyboard size={20} />
+          </button>
+        )}
+      </footer>
     </div>
   );
 };
