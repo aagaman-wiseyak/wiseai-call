@@ -1,5 +1,6 @@
 import logging
-from fastapi import APIRouter, HTTPException, UploadFile, File, Form
+from fastapi import APIRouter, HTTPException, UploadFile, File, Form, WebSocket, WebSocketDisconnect
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from typing import List, Dict, Any, Optional
 
@@ -134,6 +135,92 @@ async def synthesize_speech(req: TTSRequest):
         speed=req.speed,
     )
 
+@router.websocket("/ws-tts")
+async def websocket_tts_stream(websocket: WebSocket):
+    """
+    Persistent real-time bidirectional WebSocket TTS stream powered by OmniVoice.
+    Keeps the connection open across multiple conversational turns for zero-latency speech.
+    """
+    await websocket.accept()
+    await websocket.send_json({"type": "connected", "status": "ready"})
+    try:
+        while True:
+            data = await websocket.receive_json()
+            if data.get("action") == "ping":
+                await websocket.send_json({"type": "pong"})
+                continue
+
+            text = data.get("text", "")
+            voice_id = data.get("voice_id", "Pratikshya")
+            language = data.get("language", "eng")
+            speed = float(data.get("speed", 1.0))
+
+            if not text or not text.strip():
+                await websocket.send_json({"type": "done", "status": "empty_text"})
+                continue
+
+            first_chunk = True
+            sample_rate_recorded = 24000
+
+            async for pcm_chunk, sample_rate in tts_service.stream_speech_pcm(
+                text=text,
+                voice_id=voice_id,
+                language=language,
+                speed=speed,
+            ):
+                sample_rate_recorded = sample_rate
+                if first_chunk:
+                    await websocket.send_json({
+                        "type": "start",
+                        "sample_rate": sample_rate,
+                        "format": "pcm_s16le",
+                        "channels": 1,
+                    })
+                    first_chunk = False
+
+                if pcm_chunk:
+                    await websocket.send_bytes(pcm_chunk)
+
+            await websocket.send_json({"type": "done", "sample_rate": sample_rate_recorded})
+    except WebSocketDisconnect:
+        logger.debug("TTS WebSocket client disconnected.")
+    except Exception as e:
+        logger.error(f"Error in TTS WebSocket streaming: {e}")
+        try:
+            await websocket.send_json({"type": "error", "error": str(e)})
+        except Exception:
+            pass
+    finally:
+        try:
+            await websocket.close()
+        except Exception:
+            pass
+
+@router.post("/tts-stream")
+async def stream_speech_http(req: TTSRequest):
+    """
+    Streams raw 16-bit PCM audio chunks over chunked HTTP transfer.
+    """
+    async def pcm_generator():
+        async for chunk, _ in tts_service.stream_speech_pcm(
+            text=req.text,
+            voice_id=req.voice_id,
+            language=req.language,
+            speed=req.speed,
+        ):
+            if chunk:
+                yield chunk
+
+    return StreamingResponse(
+        pcm_generator(),
+        media_type="application/octet-stream",
+        headers={
+            "X-Sample-Rate": "24000",
+            "X-Audio-Format": "pcm_s16le",
+            "X-Channels": "1",
+        },
+    )
+
 @router.post("/asr")
 async def transcribe_speech(
     file: UploadFile = File(...),
@@ -143,35 +230,6 @@ async def transcribe_speech(
     Transcribes audio using WiseAI ASR:
     POST /transcribe-from-stream
     Supports English ('eng') and Nepali ('nep').
-    """
-    audio_bytes = await file.read()
-    return await asr_service.transcribe_audio(
-        audio_bytes=audio_bytes,
-        language=language,
-        filename=file.filename or "audio.wav",
-    )
-
-@router.post("/tts")
-async def synthesize_speech(req: TTSRequest):
-    """
-    Synthesizes speech using WiseAI TTS:
-    POST /tts/generate_from_text    
-    """
-    return await tts_service.synthesize_speech(
-        text=req.text,
-        voice_id=req.voice_id,
-        language=req.language,
-        speed=req.speed,
-    )
-
-@router.post("/asr")
-async def transcribe_speech(
-    file: UploadFile = File(...),
-    language: Optional[str] = Form(None),
-):
-    """
-    Transcribes audio using WiseAI ASR:
-    POST /asr/transcribe-from-stream
     """
     audio_bytes = await file.read()
     return await asr_service.transcribe_audio(

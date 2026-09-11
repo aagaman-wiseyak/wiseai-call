@@ -23,8 +23,10 @@ class Settings(BaseSettings):
     # WiseAI TTS Endpoint (/generate_from_text)
     TTS_API_URL: str = "https://dev-tts.wiseai.wiseyak.com/generate_from_text"
     TTS_FALLBACK_URL: str = "https://dev-models.wiseai.wiseyak.com/tts/generate_from_text"
+    TTS_WS_URL: str = "wss://dev-tts.wiseai.wiseyak.com/stream_from_text"
+    TTS_STREAMING_ENABLED: bool = True
     TTS_TIMEOUT: float = 45.0
-    TTS_DEFAULT_VOICE: str = "Prakash_0"
+    TTS_DEFAULT_VOICE: str = "Pratikshya"
     TTS_MODEL: str = "omnivoice_tts"
     
     # Durable campaign and call-session store. Configure this to a managed
