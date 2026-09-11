@@ -246,16 +246,18 @@ export const RightSetupPanel: React.FC<RightSetupPanelProps> = ({
             {selectedNode ? (
               <div className="inspector-content">
                 <div className="inspector-head">
-                  <div>
+                  <div className="inspector-head-title-wrap">
                     <span className="inspector-type">{selectedNode.data.type} node</span>
                     <h3 className="inspector-title">{selectedNode.data.label}</h3>
                   </div>
                   <button
-                    className="btn-text-danger"
+                    type="button"
+                    className="btn-delete-node"
                     onClick={() => onDeleteNode(selectedNode.id)}
                     title="Delete node"
                   >
-                    <Trash2 size={14} />
+                    <Trash2 size={13} />
+                    <span>Delete</span>
                   </button>
                 </div>
 
@@ -274,46 +276,17 @@ export const RightSetupPanel: React.FC<RightSetupPanelProps> = ({
 
                 {/* GREETING NODE FIELDS */}
                 {selectedNode.data.type === 'greeting' && (
-                  <>
-                    <div className="clean-field-group">
-                      <label className="clean-label">Opening Speech Script</label>
-                      <textarea
-                        className="clean-textarea"
-                        rows={4}
-                        value={(selectedNode.data as any).openingScript || ''}
-                        onChange={(e) =>
-                          onUpdateNodeData(selectedNode.id, { openingScript: e.target.value } as any)
-                        }
-                      />
-                    </div>
-
-                    <div className="clean-checkbox-row">
-                      <label>
-                        <input
-                          type="checkbox"
-                          checked={(selectedNode.data as any).enableAmd || false}
-                          onChange={(e) =>
-                            onUpdateNodeData(selectedNode.id, { enableAmd: e.target.checked } as any)
-                          }
-                        />
-                        Enable Answering Machine Detection (AMD)
-                      </label>
-                    </div>
-
-                    {(selectedNode.data as any).enableAmd && (
-                      <div className="clean-field-group">
-                        <label className="clean-label">Voicemail Drop Message</label>
-                        <textarea
-                          className="clean-textarea"
-                          rows={3}
-                          value={(selectedNode.data as any).voicemailScript || ''}
-                          onChange={(e) =>
-                            onUpdateNodeData(selectedNode.id, { voicemailScript: e.target.value } as any)
-                          }
-                        />
-                      </div>
-                    )}
-                  </>
+                  <div className="clean-field-group">
+                    <label className="clean-label">Opening Speech Script</label>
+                    <textarea
+                      className="clean-textarea"
+                      rows={4}
+                      value={(selectedNode.data as any).openingScript || ''}
+                      onChange={(e) =>
+                        onUpdateNodeData(selectedNode.id, { openingScript: e.target.value } as any)
+                      }
+                    />
+                  </div>
                 )}
 
                 {/* QUESTION NODE FIELDS */}

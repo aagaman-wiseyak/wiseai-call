@@ -481,7 +481,6 @@ export const CallSimulator: React.FC<CallSimulatorProps> = ({
       return [
         'Yes, this is Alex speaking',
         'Who is calling?',
-        'Leave a message (Voicemail)',
         'I am in a meeting right now',
         'Wrong number',
       ];

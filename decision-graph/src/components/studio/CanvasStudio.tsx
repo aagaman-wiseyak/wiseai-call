@@ -322,7 +322,6 @@ export const CanvasStudio: React.FC<CanvasStudioProps> = ({
           label: 'Greeting & Intro',
           openingScript: 'Hello {{lead_name}}, this is {{agent_name}} calling from {{company}}.',
           voiceStyle: 'Professional',
-          enableAmd: true,
         };
         break;
       case 'question':

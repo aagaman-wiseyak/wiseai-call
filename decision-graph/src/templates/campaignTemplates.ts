@@ -87,8 +87,6 @@ export const CAMPAIGN_TEMPLATES: CampaignTemplate[] = [
           description: 'Announce contract expiration & loyalty speed upgrade',
           openingScript: 'Hi {{lead_name}}, this is Maya from Apex Fiber. I am reaching out because your current internet renewal is coming up next month, and we have special loyalty discounts and speed upgrades available. Do you have just a minute?',
           voiceStyle: 'Warm & helpful',
-          enableAmd: true,
-          voicemailScript: 'Hi {{lead_name}}, Maya here from Apex Fiber regarding your internet renewal discount. Please check your SMS or visit apexfiber.com/renew. Have a wonderful day!',
         },
       },
       {
@@ -330,26 +328,11 @@ export const CAMPAIGN_TEMPLATES: CampaignTemplate[] = [
         position: { x: 400, y: 50 },
         data: {
           type: 'greeting',
-          label: 'Outbound Greeting & AMD',
-          description: 'Initial greeting with voicemail & gatekeeper detection',
+          label: 'Outbound Greeting',
+          description: 'Initial greeting with prospect',
           openingScript: 'Hi {{lead_name}}, this is Sarah from DataPilot. I noticed your team at {{company}} is managing Kubernetes workloads — do you have 30 seconds?',
           voiceStyle: 'Friendly & confident',
-          enableAmd: true,
-          voicemailScript: 'Hi {{lead_name}}, Alex here with DataPilot. Following up on your cloud infrastructure. I will drop a note to your email. Have a great day!',
           gatekeeperHandling: 'I am calling to follow up with Alex regarding Apex Logistics cloud optimization project.',
-        },
-      },
-      {
-        id: 'node-vm-hangup',
-        type: 'hangup',
-        position: { x: 100, y: 320 },
-        data: {
-          type: 'hangup',
-          label: 'Voicemail Drop & End',
-          description: 'Dropped voicemail audio and tagged for email follow-up',
-          closingScript: 'Leaving voicemail message and sending automated follow-up email.',
-          disposition: 'voicemail_left',
-          sendSummarySms: true,
         },
       },
       {
@@ -502,13 +485,6 @@ export const CAMPAIGN_TEMPLATES: CampaignTemplate[] = [
     ],
     initialEdges: [
       {
-        id: 'edge-greeting-vm',
-        source: 'node-greeting',
-        sourceHandle: 'voicemail',
-        target: 'node-vm-hangup',
-        data: { label: 'Voicemail / AMD', intent: 'voicemail' },
-      },
-      {
         id: 'edge-greeting-human',
         source: 'node-greeting',
         sourceHandle: 'human',
@@ -627,8 +603,6 @@ export const CAMPAIGN_TEMPLATES: CampaignTemplate[] = [
           description: 'Confirm identity of post-op patient',
           openingScript: 'Hello, this is Clara calling from Metro General Hospital for {{lead_name}}. Am I speaking with {{lead_name}}?',
           voiceStyle: 'Warm & empathetic',
-          enableAmd: true,
-          voicemailScript: 'Hello {{lead_name}}, this is Metro General Hospital checking on your recovery. Please call our nurse line at 555-0199 when you get a chance.',
         },
       },
       {
@@ -830,7 +804,6 @@ export const CAMPAIGN_TEMPLATES: CampaignTemplate[] = [
           description: 'Opening statement for neighborhood solar program',
           openingScript: 'Hi {{lead_name}}, this is Jordan from SunBright Energy. I am reaching out regarding the local zero-down solar rebate program in your area — do you own the property at {{address}}?',
           voiceStyle: 'Upbeat & professional',
-          enableAmd: true,
         },
       },
       {

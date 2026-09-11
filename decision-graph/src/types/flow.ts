@@ -32,8 +32,8 @@ export interface NodeDataCommon {
 
 export interface GreetingNodeData extends NodeDataCommon {
   openingScript: string;
-  voiceStyle: string;
-  enableAmd: boolean; // Answering machine detection
+  voiceStyle?: string;
+  enableAmd?: boolean;
   voicemailScript?: string;
   gatekeeperHandling?: string;
 }

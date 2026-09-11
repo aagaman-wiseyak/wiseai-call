@@ -60,20 +60,7 @@ export default function App() {
         globalObjections: [],
         faqs: [],
       },
-      initialNodes: [
-        {
-          id: 'node-greeting',
-          type: 'greeting',
-          position: { x: 350, y: 80 },
-          data: {
-            type: 'greeting',
-            label: 'Initial Greeting',
-            openingScript: 'Hello {{lead_name}}, this is {{agent_name}} calling from {{company}}.',
-            voiceStyle: 'Professional',
-            enableAmd: true,
-          },
-        },
-      ],
+      initialNodes: [],
       initialEdges: [],
     };
 
