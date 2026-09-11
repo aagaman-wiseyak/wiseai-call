@@ -21,7 +21,7 @@ import {
   CallSimulationState,
   SimulationMessage,
 } from '../../types/flow';
-import { telephoneAudio, speakText, stopSpeech } from '../../utils/speech';
+import { telephoneAudio, speakText, stopSpeech, initTTSWebSocket, disconnectTTSWebSocket } from '../../utils/speech';
 import { VADAudioEngine } from '../../utils/vadRecorder';
 import { WiseBrandLogo } from '../brand/WiseBrandLogo';
 
@@ -109,10 +109,13 @@ export const VoiceCallPage: React.FC<VoiceCallPageProps> = ({
     };
   }, [simState.status]);
 
-  // Clean up on unmount
+  // Pre-warm Persistent TTS WebSocket when entering call view & clean up on unmount
   useEffect(() => {
+    initTTSWebSocket();
+
     return () => {
       stopSpeech();
+      disconnectTTSWebSocket();
       if (streamIntervalRef.current) clearInterval(streamIntervalRef.current);
       if (vadEngineRef.current) {
         vadEngineRef.current.stop();

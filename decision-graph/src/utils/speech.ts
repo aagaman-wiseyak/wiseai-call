@@ -219,9 +219,124 @@ class PCMStreamPlayer {
 
 const pcmPlayer = new PCMStreamPlayer();
 
+/**
+ * Persistent Pre-warmed WebSocket Manager for OmniVoice TTS.
+ * Keeps an open WebSocket connection alive during the entire call session,
+ * completely eliminating the ~1.2s connection handshake on speech turns.
+ */
+class PersistentTTSWebSocket {
+  private ws: WebSocket | null = null;
+  private isConnecting = false;
+  private activeOnDone: (() => void) | null = null;
+  private activeOnError: ((err: any) => void) | null = null;
+  private streamReceivedChunk = false;
+
+  connect() {
+    if (this.ws && (this.ws.readyState === WebSocket.OPEN || this.ws.readyState === WebSocket.CONNECTING)) {
+      return;
+    }
+    this.isConnecting = true;
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const wsUrl = `${protocol}//${window.location.host}/api/call/ws-tts`;
+
+    const ws = new WebSocket(wsUrl);
+    ws.binaryType = 'arraybuffer';
+    this.ws = ws;
+
+    ws.onopen = () => {
+      this.isConnecting = false;
+      console.log('Pre-warmed persistent TTS WebSocket connection established.');
+    };
+
+    ws.onmessage = (event) => {
+      if (typeof event.data === 'string') {
+        try {
+          const meta = JSON.parse(event.data);
+          if (meta.type === 'start') {
+            pcmPlayer.init(meta.sample_rate || 24000);
+          } else if (meta.type === 'done') {
+            pcmPlayer.scheduleCompletion(() => {
+              if (this.activeOnDone) {
+                const cb = this.activeOnDone;
+                this.activeOnDone = null;
+                cb();
+              }
+            });
+          }
+        } catch (_) {}
+      } else if (event.data instanceof ArrayBuffer) {
+        this.streamReceivedChunk = true;
+        pcmPlayer.enqueuePCMChunk(event.data);
+      }
+    };
+
+    ws.onerror = (e) => {
+      console.warn('Persistent TTS WebSocket error:', e);
+      if (!this.streamReceivedChunk && this.activeOnError) {
+        const errCb = this.activeOnError;
+        this.activeOnError = null;
+        errCb(e);
+      }
+    };
+
+    ws.onclose = () => {
+      this.ws = null;
+      this.isConnecting = false;
+    };
+  }
+
+  speak(payload: any, onEnd?: () => void, onError?: (err: any) => void) {
+    this.streamReceivedChunk = false;
+    this.activeOnDone = onEnd || null;
+    this.activeOnError = onError || null;
+
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+      this.connect();
+      const startTime = Date.now();
+      const checkTimer = setInterval(() => {
+        if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+          clearInterval(checkTimer);
+          this.ws.send(JSON.stringify(payload));
+        } else if (Date.now() - startTime > 4000 || (this.ws && this.ws.readyState === WebSocket.CLOSED)) {
+          clearInterval(checkTimer);
+          if (onError) onError(new Error('WebSocket connection timeout'));
+        }
+      }, 30);
+    } else {
+      // 0ms delay: Connection is already warm!
+      this.ws.send(JSON.stringify(payload));
+    }
+  }
+
+  cancelTurn() {
+    this.activeOnDone = null;
+    this.activeOnError = null;
+    this.streamReceivedChunk = false;
+  }
+
+  disconnect() {
+    this.cancelTurn();
+    if (this.ws) {
+      try {
+        this.ws.close();
+      } catch (_) {}
+      this.ws = null;
+    }
+  }
+}
+
+const ttsSocket = new PersistentTTSWebSocket();
+
+export const initTTSWebSocket = () => {
+  ttsSocket.connect();
+};
+
+export const disconnectTTSWebSocket = () => {
+  ttsSocket.disconnect();
+};
+
 // Active playback elements for fallback
 let activeAudioElement: HTMLAudioElement | null = null;
-let activeWebSocket: WebSocket | null = null;
 
 export interface SpeakOptions {
   language?: 'eng' | 'nep' | 'mai';
@@ -280,6 +395,7 @@ const fallbackBrowserSpeech = (
 
 /**
  * Synthesizes and streams speech in real time using OmniVoice WebSocket streaming.
+ * Uses pre-warmed persistent WebSocket connection for 0ms network setup latency.
  * Audio chunks play immediately upon arrival (~500ms TTFT) via Web Audio API.
  * Falls back to HTTP POST or browser synthesis if WebSocket is unavailable.
  */
@@ -302,62 +418,22 @@ export const speakText = (
     /[\u0900-\u097F]/.test(cleanText) ? 'nep' : 'eng'
   );
 
-  let streamReceivedChunk = false;
-
-  try {
-    // 1. PRIMARY: OmniVoice WebSocket Real-Time PCM Streaming
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsUrl = `${protocol}//${window.location.host}/api/call/ws-tts`;
-
-    const ws = new WebSocket(wsUrl);
-    activeWebSocket = ws;
-    ws.binaryType = 'arraybuffer';
-
-    ws.onopen = () => {
-      ws.send(JSON.stringify({
-        text: cleanText,
-        language: lang,
-        voice_id: options?.voiceId || 'Pratikshya',
-        speed: options?.speed || rate || 1.0,
-      }));
-    };
-
-    ws.onmessage = (event) => {
-      if (typeof event.data === 'string') {
-        try {
-          const meta = JSON.parse(event.data);
-          if (meta.type === 'start') {
-            pcmPlayer.init(meta.sample_rate || 24000);
-          } else if (meta.type === 'done') {
-            pcmPlayer.scheduleCompletion(() => {
-              activeWebSocket = null;
-              if (onEnd) onEnd();
-            });
-          }
-        } catch (_) {}
-      } else if (event.data instanceof ArrayBuffer) {
-        streamReceivedChunk = true;
-        pcmPlayer.enqueuePCMChunk(event.data);
-      }
-    };
-
-    ws.onerror = (e) => {
-      console.warn('WebSocket TTS error, triggering fallback:', e);
-      if (!streamReceivedChunk) {
-        fallbackHttpSpeech(cleanText, lang, rate, pitch, onEnd, options);
-      }
-    };
-
-    ws.onclose = () => {
-      if (!streamReceivedChunk) {
-        fallbackHttpSpeech(cleanText, lang, rate, pitch, onEnd, options);
-      }
-    };
-
-  } catch (err) {
-    console.warn('Failed to initialize WebSocket TTS:', err);
-    fallbackHttpSpeech(cleanText, lang, rate, pitch, onEnd, options);
-  }
+  // 1. PRIMARY: OmniVoice WebSocket Real-Time PCM Streaming via Persistent Connection
+  ttsSocket.speak(
+    {
+      text: cleanText,
+      language: lang,
+      voice_id: options?.voiceId || 'Pratikshya',
+      speed: options?.speed || rate || 1.0,
+    },
+    () => {
+      if (onEnd) onEnd();
+    },
+    (err) => {
+      console.warn('WebSocket TTS error, falling back to HTTP speech:', err);
+      fallbackHttpSpeech(cleanText, lang, rate, pitch, onEnd, options);
+    }
+  );
 };
 
 /**
@@ -412,13 +488,7 @@ const fallbackHttpSpeech = async (
 };
 
 export const stopSpeech = () => {
-  if (activeWebSocket) {
-    try {
-      activeWebSocket.close();
-    } catch (_) {}
-    activeWebSocket = null;
-  }
-
+  ttsSocket.cancelTurn();
   pcmPlayer.stop();
 
   if (activeAudioElement) {
@@ -433,3 +503,4 @@ export const stopSpeech = () => {
     window.speechSynthesis.cancel();
   }
 };
+

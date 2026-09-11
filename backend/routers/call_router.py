@@ -138,50 +138,50 @@ async def synthesize_speech(req: TTSRequest):
 @router.websocket("/ws-tts")
 async def websocket_tts_stream(websocket: WebSocket):
     """
-    Real-time bidirectional WebSocket TTS stream powered by OmniVoice.
-    Client sends JSON:
-        {"text": "...", "voice_id": "Prakash_0", "language": "english", "speed": 1.0}
-    Server streams:
-        1. JSON: {"type": "start", "sample_rate": 24000, "format": "pcm_s16le"}
-        2. Binary: 16-bit PCM raw audio chunks
-        3. JSON: {"type": "done", "sample_rate": 24000}
+    Persistent real-time bidirectional WebSocket TTS stream powered by OmniVoice.
+    Keeps the connection open across multiple conversational turns for zero-latency speech.
     """
     await websocket.accept()
+    await websocket.send_json({"type": "connected", "status": "ready"})
     try:
-        data = await websocket.receive_json()
-        text = data.get("text", "")
-        voice_id = data.get("voice_id")
-        language = data.get("language", "eng")
-        speed = float(data.get("speed", 1.0))
+        while True:
+            data = await websocket.receive_json()
+            if data.get("action") == "ping":
+                await websocket.send_json({"type": "pong"})
+                continue
 
-        if not text or not text.strip():
-            await websocket.send_json({"type": "done", "status": "empty_text"})
-            await websocket.close()
-            return
+            text = data.get("text", "")
+            voice_id = data.get("voice_id", "Pratikshya")
+            language = data.get("language", "eng")
+            speed = float(data.get("speed", 1.0))
 
-        first_chunk = True
-        sample_rate_recorded = 24000
+            if not text or not text.strip():
+                await websocket.send_json({"type": "done", "status": "empty_text"})
+                continue
 
-        async for pcm_chunk, sample_rate in tts_service.stream_speech_pcm(
-            text=text,
-            voice_id=voice_id,
-            language=language,
-            speed=speed,
-        ):
-            sample_rate_recorded = sample_rate
-            if first_chunk:
-                await websocket.send_json({
-                    "type": "start",
-                    "sample_rate": sample_rate,
-                    "format": "pcm_s16le",
-                    "channels": 1,
-                })
-                first_chunk = False
+            first_chunk = True
+            sample_rate_recorded = 24000
 
-            if pcm_chunk:
-                await websocket.send_bytes(pcm_chunk)
+            async for pcm_chunk, sample_rate in tts_service.stream_speech_pcm(
+                text=text,
+                voice_id=voice_id,
+                language=language,
+                speed=speed,
+            ):
+                sample_rate_recorded = sample_rate
+                if first_chunk:
+                    await websocket.send_json({
+                        "type": "start",
+                        "sample_rate": sample_rate,
+                        "format": "pcm_s16le",
+                        "channels": 1,
+                    })
+                    first_chunk = False
 
-        await websocket.send_json({"type": "done", "sample_rate": sample_rate_recorded})
+                if pcm_chunk:
+                    await websocket.send_bytes(pcm_chunk)
+
+            await websocket.send_json({"type": "done", "sample_rate": sample_rate_recorded})
     except WebSocketDisconnect:
         logger.debug("TTS WebSocket client disconnected.")
     except Exception as e:
