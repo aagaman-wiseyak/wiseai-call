@@ -1,8 +1,27 @@
 import dagre from 'dagre';
 import { CustomFlowNode, CustomFlowEdge } from '../types/flow';
 
-const NODE_WIDTH = 320;
-const NODE_HEIGHT = 180;
+export const getNodeDimensions = (node: CustomFlowNode) => {
+  const width = 310;
+  let height = 220;
+
+  if (node.data.type === 'scenarioBranch') {
+    const branches = (node.data as any).branches?.length || 2;
+    height = 180 + branches * 44;
+  } else if (node.data.type === 'greeting') {
+    height = 240;
+  } else if (node.data.type === 'question') {
+    height = 230;
+  } else if (node.data.type === 'knowledge') {
+    height = 240;
+  } else if (node.data.type === 'action') {
+    height = 210;
+  } else if (node.data.type === 'hangup') {
+    height = 180;
+  }
+
+  return { width, height };
+};
 
 export const getLayoutedElements = (
   nodes: CustomFlowNode[],
@@ -14,22 +33,15 @@ export const getLayoutedElements = (
 
   dagreGraph.setGraph({
     rankdir: direction,
-    nodesep: 80,
-    ranksep: 100,
-    marginx: 40,
-    marginy: 40,
+    nodesep: 110,
+    ranksep: 130,
+    marginx: 50,
+    marginy: 50,
   });
 
   nodes.forEach((node) => {
-    // Dynamic height based on node type
-    let h = NODE_HEIGHT;
-    if (node.data.type === 'scenarioBranch') {
-      const branches = (node.data as any).branches?.length || 2;
-      h = 160 + branches * 36;
-    } else if (node.data.type === 'greeting') {
-      h = 220;
-    }
-    dagreGraph.setNode(node.id, { width: NODE_WIDTH, height: h });
+    const { width, height } = getNodeDimensions(node);
+    dagreGraph.setNode(node.id, { width, height });
   });
 
   edges.forEach((edge) => {
@@ -40,14 +52,17 @@ export const getLayoutedElements = (
 
   const layoutedNodes = nodes.map((node) => {
     const nodeWithPosition = dagreGraph.node(node.id);
+    const { width, height } = getNodeDimensions(node);
+
     return {
       ...node,
       position: {
-        x: nodeWithPosition.x - NODE_WIDTH / 2,
-        y: nodeWithPosition.y - NODE_HEIGHT / 2,
+        x: Math.round(nodeWithPosition.x - width / 2),
+        y: Math.round(nodeWithPosition.y - height / 2),
       },
     };
   });
 
   return { nodes: layoutedNodes, edges };
 };
+

@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
-import { ArrowRight, Plus, Sparkles, PhoneCall } from 'lucide-react';
+import { ArrowRight, Plus, Sparkles } from 'lucide-react';
 import { CAMPAIGN_TEMPLATES, CampaignTemplate } from '../../templates/campaignTemplates';
 import { generateCampaignFromPrompt } from '../../utils/promptGenerator';
 import { generateDecisionGraphWithLlm } from '../../utils/llmClient';
+import { WiseBrandLogo } from '../brand/WiseBrandLogo';
 
 interface TemplateHubProps {
   onSelectCampaign: (template: CampaignTemplate) => void;
@@ -63,20 +64,14 @@ export const TemplateHub: React.FC<TemplateHubProps> = ({
       <header className="hub-header">
         <div className="hub-header-inner">
           <div className="hub-brand">
-            <div className="hub-logo-box">
-              <PhoneCall size={18} />
-            </div>
-            <div>
-              <h1 className="hub-title">CallFlow</h1>
-              <span className="hub-subtitle">Outbound Voice Decision Trees</span>
-            </div>
+            <WiseBrandLogo size="md" />
           </div>
           <div className="hub-header-actions">
             <span className="hub-header-badge">
-              Step 1: Choose or Generate Template
+              Outbound Voice Campaign Studio
             </span>
             <button className="btn-clean-primary" onClick={onStartBlank}>
-              <Plus size={13} /> Create Template
+              <Plus size={14} /> Create Blank Campaign
             </button>
           </div>
         </div>

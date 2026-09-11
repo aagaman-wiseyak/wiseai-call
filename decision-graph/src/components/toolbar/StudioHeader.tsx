@@ -1,6 +1,5 @@
 import React from 'react';
 import {
-  PhoneCall,
   LayoutGrid,
   Download,
   Upload,
@@ -10,6 +9,7 @@ import {
   FolderOpen,
 } from 'lucide-react';
 import { CAMPAIGN_TEMPLATES } from '../../templates/campaignTemplates';
+import { WiseBrandLogo } from '../brand/WiseBrandLogo';
 
 interface StudioHeaderProps {
   currentCampaignId: string;
@@ -40,15 +40,7 @@ export const StudioHeader: React.FC<StudioHeaderProps> = ({
     <header className="studio-header">
       {/* Brand / Logo */}
       <div className="header-left">
-        <div className="brand-badge">
-          <div className="brand-icon">
-            <PhoneCall size={18} />
-          </div>
-          <div className="brand-text">
-            <h1 className="brand-title">CallFlow AI</h1>
-            <span className="brand-tag">Outbound Decision Studio</span>
-          </div>
-        </div>
+        <WiseBrandLogo size="sm" showTagline={false} />
 
         {/* Campaign Selector */}
         <div className="campaign-select-wrap">
