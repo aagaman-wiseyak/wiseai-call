@@ -634,6 +634,8 @@ body {
   display: flex;
   align-items: center;
   gap: 14px;
+  min-width: 0;
+  flex: 1;
 }
 
 .btn-clean-back {
@@ -668,6 +670,7 @@ body {
   display: flex;
   align-items: center;
   gap: 10px;
+  min-width: 0;
 }
 
 .header-campaign-title {
@@ -694,7 +697,40 @@ body {
   display: flex;
   align-items: center;
   gap: 10px;
+  flex-shrink: 0;
 }
+
+.add-step-menu-wrap { position: relative; }
+.add-step-menu {
+  position: absolute;
+  z-index: 40;
+  right: 0;
+  top: calc(100% + 8px);
+  width: 210px;
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  border: 1px solid var(--color-border-card);
+  border-radius: var(--radius-md);
+  background: var(--color-white);
+  box-shadow: 0 10px 24px rgba(32, 34, 36, .14);
+}
+.add-step-menu button {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  padding: 9px 10px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--color-secondary);
+  font: 600 12px var(--font-main);
+  text-align: left;
+  cursor: pointer;
+}
+.add-step-menu button:hover { background: var(--color-white2); color: var(--color-heading); }
 
 /* Quick Node Addition Toolbar */
 .quick-add-group {
@@ -1602,6 +1638,10 @@ body {
   border-top: 1px solid var(--color-divider);
 }
 
+.add-response-path-button { width: 100%; justify-content: center; min-height: 34px; }
+.btn-clean-text { border: 0; background: transparent; color: var(--color-light); cursor: pointer; padding: 4px 0; font-size: 12px; text-align: center; }
+.btn-clean-text:hover { color: var(--color-secondary); }
+
 .quick-branch-title {
   font-size: 11px;
   font-weight: 700;
@@ -1633,6 +1673,27 @@ body {
 .btn-quick-branch.blue:hover { background: var(--color-primary-15); color: var(--color-primary); border-color: var(--color-primary); }
 .btn-quick-branch.red:hover { background: rgba(255, 56, 60, 0.15); color: #dc2626; border-color: #FF383C; }
 .btn-quick-branch.purple:hover { background: rgba(168, 85, 247, 0.15); color: #7e22ce; border-color: #A855F7; }
+
+/* Deliberately separate custom routing from the quick-response shortcuts. */
+.custom-branch-inline-form {
+  display: flex;
+  flex-direction: column;
+  gap: 11px;
+  margin-top: 18px;
+  padding: 14px;
+  background: #f8fafc;
+  border: 1px solid var(--color-border-card);
+  border-radius: var(--radius-md);
+}
+
+.custom-branch-heading { display: flex; flex-direction: column; gap: 3px; }
+.custom-branch-heading span { font-size: 12px; font-weight: 700; color: var(--color-secondary); }
+.custom-branch-heading p { margin: 0; font-size: 11.5px; line-height: 1.4; color: var(--color-light); }
+.custom-branch-field { display: flex; flex-direction: column; gap: 5px; }
+.custom-branch-field > span { font-size: 11px; font-weight: 600; color: var(--color-secondary); }
+.custom-branch-field .clean-input, .custom-branch-field .clean-select { width: 100%; box-sizing: border-box; background: var(--color-white); }
+.custom-branch-connect { width: 100%; justify-content: center; margin-top: 3px; min-height: 32px; }
+.custom-branch-connect:disabled { opacity: .55; cursor: not-allowed; }
 
 .panel-refine-footer {
   padding: 12px 16px;
@@ -2469,6 +2530,55 @@ body {
 .speaking-wave-dots span:nth-child(2) { height: 14px; animation-delay: 0.2s; }
 .speaking-wave-dots span:nth-child(3) { height: 9px; animation-delay: 0.3s; }
 .speaking-wave-dots span:nth-child(4) { height: 12px; animation-delay: 0.4s; }
+
+/* Responsive application shell: preserve clear editing controls on tablets
+   and turn fixed side-by-side layouts into stacked, scrollable workspaces on phones. */
+@media (max-width: 1180px) {
+  .right-setup-panel { width: 360px; }
+  .canvas-header { padding: 0 16px; }
+  .header-campaign-badge { max-width: 150px; overflow: hidden; text-overflow: ellipsis; }
+  .quick-add-group { gap: 4px; padding: 4px; }
+  .btn-quick-add { padding: 6px 8px; }
+  .btn-quick-add span { display: none; }
+  .telephony-column { width: 330px; padding: 18px; }
+}
+
+@media (max-width: 900px) {
+  .canvas-studio-page, .voice-call-page { height: 100dvh; }
+  .canvas-header { height: auto; min-height: 68px; padding: 10px 16px; align-items: flex-start; gap: 10px; flex-wrap: wrap; }
+  .canvas-header-left, .canvas-header-right { height: auto; min-width: 0; }
+  .canvas-header-left { flex: 1; }.canvas-header-right { width: 100%; justify-content: flex-end; }
+  .header-campaign-info { min-width: 0; }.header-campaign-title { overflow: hidden; text-overflow: ellipsis; max-width: 200px; }
+  .canvas-studio-body, .canvas-workspace { height: auto; min-height: 0; flex-direction: column; }
+  .canvas-area-wrapper, .canvas-flow-area { flex: 0 0 43%; min-height: 220px; }
+  .right-setup-panel { width: 100%; flex: 1; min-height: 0; height: auto; border-left: 0; border-top: 1px solid var(--color-divider); }
+  .panel-scroll-content { padding: 16px; }
+  .voice-header { height: auto; min-height: 68px; padding: 10px 16px; flex-wrap: wrap; gap: 8px; }
+  .voice-header-center { order: 3; width: 100%; height: auto; justify-content: space-between; }
+  .voice-main-content { height: auto; min-height: 0; flex-direction: column; }
+  .telephony-column { width: 100%; max-height: 265px; padding: 14px 16px; border-right: 0; border-bottom: 1px solid var(--color-divider); }
+  .telephony-card { padding: 16px; display: grid; grid-template-columns: auto 1fr; text-align: left; align-items: center; column-gap: 14px; }
+  .telephony-card > .avatar-status-circle { grid-row: span 3; }.telephony-card > .active-path-box, .telephony-card > .telephony-actions { grid-column: 2; }
+  .session-data-card { display: none; }
+  .transcript-column { min-height: 0; }
+}
+
+@media (max-width: 600px) {
+  body { overflow: hidden; }
+  .hub-header { padding: 0 18px; }.hub-main { padding-left: 18px; padding-right: 18px; }
+  .canvas-header-left { width: 100%; }.canvas-header-right { justify-content: stretch; overflow-x: auto; padding-bottom: 2px; }
+  .header-divider, .canvas-header-left .header-divider + .wise-brand-logo, .header-campaign-badge { display: none; }
+  .header-campaign-title { max-width: calc(100vw - 110px); font-size: 14px; }
+  .btn-clean-back { padding: 6px 9px; font-size: 12px; }.btn-clean-secondary { white-space: nowrap; }
+  .quick-add-group { flex: 1; justify-content: space-around; }.btn-quick-add { min-width: 38px; justify-content: center; }
+  .canvas-area-wrapper, .canvas-flow-area { flex-basis: 36%; min-height: 170px; }
+  .right-setup-panel { flex-basis: 64%; }.panel-tab { padding: 10px 6px; font-size: 11px; }.panel-scroll-content { padding: 14px; }
+  .branch-target-select-row, .branch-card-header-row { align-items: stretch; }.branch-target-select-row { flex-wrap: wrap; }.branch-target-select-row .clean-select { flex: 1; min-width: 0; }
+  .custom-branch-inline-form { padding: 12px; }.clean-input, .clean-select, .clean-textarea { font-size: 16px; }
+  .voice-header-left { width: 100%; }.voice-header-center { display: none; }.voice-header-right { margin-left: auto; height: auto; }
+  .voice-main-content { min-height: 0; }.telephony-column { max-height: 230px; }.telephony-card { grid-template-columns: auto 1fr; padding: 12px; }.avatar-status-circle { width: 58px; height: 58px; }.call-status-headline { font-size: 14px; }
+  .transcript-header, .caller-interaction-bar { padding-left: 14px; padding-right: 14px; }.transcript-messages-scroller { padding: 14px; gap: 12px; }.clean-msg-bubble { max-width: 90%; font-size: 13px; }.chips-list { flex-wrap: nowrap; overflow-x: auto; overflow-y: hidden; max-height: none; padding-bottom: 2px; }.clean-chip-btn { flex: 0 0 auto; }.transcript-input-row { gap: 6px; }.btn-send-clean { padding: 10px 13px; }
+}
 
 /* Campaign workspace: business setup before advanced flow editing. */
 .workspace-page { min-height: 100vh; background: #f8fafc; color: #18181b; }

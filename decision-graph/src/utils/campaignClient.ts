@@ -3,10 +3,11 @@ import { CampaignKnowledge, CustomFlowEdge, CustomFlowNode } from '../types/flow
 const tenantId = import.meta.env.VITE_TENANT_ID as string | undefined;
 
 export function getTenantId(): string {
-  if (!tenantId?.trim()) {
-    throw new Error('VITE_TENANT_ID is required before launching a persisted campaign.');
-  }
-  return tenantId;
+  if (tenantId?.trim()) return tenantId;
+  // Local development has no authenticated tenant context yet. Keep this
+  // isolated to Vite dev; deployed builds must receive identity from config.
+  if (import.meta.env.DEV) return 'local-development';
+  throw new Error('VITE_TENANT_ID is required before launching a persisted campaign.');
 }
 
 export async function saveCampaign(

@@ -59,31 +59,40 @@ const renderTypePill = (type: OutboundNodeType) => {
     case 'scenarioBranch':
       return (
         <span className="step-type-pill scenarioBranch">
-          <GitFork size={10} /> Branch
+          <GitFork size={10} /> Response check
         </span>
       );
     case 'knowledge':
       return (
         <span className="step-type-pill knowledge">
-          <ShieldAlert size={10} /> Rebuttal
+          <ShieldAlert size={10} /> Answer concern
         </span>
       );
     case 'action':
       return (
         <span className="step-type-pill action">
-          <Zap size={10} /> Action
+          <Zap size={10} /> Complete task
         </span>
       );
     case 'hangup':
       return (
         <span className="step-type-pill hangup">
-          <PhoneOff size={10} /> Hangup
+          <PhoneOff size={10} /> End call
         </span>
       );
     default:
       return <span className="step-type-pill">{type}</span>;
   }
 };
+
+const stepTypeName = (type: OutboundNodeType) => ({
+  greeting: 'opening',
+  question: 'question',
+  scenarioBranch: 'response check',
+  knowledge: 'answer concern',
+  action: 'complete task',
+  hangup: 'end call',
+}[type]);
 
 export const RightSetupPanel: React.FC<RightSetupPanelProps> = ({
   nodes,
@@ -105,6 +114,7 @@ export const RightSetupPanel: React.FC<RightSetupPanelProps> = ({
   const [refinePrompt, setRefinePrompt] = useState('');
   const [customBranchText, setCustomBranchText] = useState('');
   const [customBranchTarget, setCustomBranchTarget] = useState('');
+  const [isAddingCustomPath, setIsAddingCustomPath] = useState(false);
 
   const outgoingEdges = selectedNode ? edges.filter((e) => e.source === selectedNode.id) : [];
   const otherNodes = selectedNode ? nodes.filter((n) => n.id !== selectedNode.id) : [];
@@ -272,7 +282,7 @@ export const RightSetupPanel: React.FC<RightSetupPanelProps> = ({
               <div className="inspector-content">
                 <div className="inspector-head">
                   <div className="inspector-head-title-wrap">
-                    <span className="inspector-type">{selectedNode.data.type} node</span>
+                    <span className="inspector-type">{stepTypeName(selectedNode.data.type)} step</span>
                     <h3 className="inspector-title">{selectedNode.data.label}</h3>
                   </div>
                   <button
@@ -361,7 +371,7 @@ export const RightSetupPanel: React.FC<RightSetupPanelProps> = ({
                 {selectedNode.data.type === 'scenarioBranch' && (
                   <>
                     <div className="clean-field-group">
-                      <label className="clean-label">Evaluation Criteria</label>
+                      <label className="clean-label">How should the response be recognized?</label>
                       <input
                         type="text"
                         className="clean-input"
@@ -374,7 +384,7 @@ export const RightSetupPanel: React.FC<RightSetupPanelProps> = ({
 
                     <div className="branches-section">
                       <div className="section-head-inline">
-                        <label className="clean-label">Branch Scenarios</label>
+                        <label className="clean-label">Customer response options</label>
                         <button className="btn-clean-secondary btn-sm" onClick={addBranchToSelected}>
                           <Plus size={12} /> Add Scenario
                         </button>
@@ -414,7 +424,7 @@ export const RightSetupPanel: React.FC<RightSetupPanelProps> = ({
                 {selectedNode.data.type === 'knowledge' && (
                   <>
                     <div className="clean-field-group">
-                      <label className="clean-label">Objection Topic</label>
+                      <label className="clean-label">Customer concern or question</label>
                       <input
                         type="text"
                         className="clean-input"
@@ -426,7 +436,7 @@ export const RightSetupPanel: React.FC<RightSetupPanelProps> = ({
                     </div>
 
                     <div className="clean-field-group">
-                      <label className="clean-label">Rebuttal / FAQ Answer</label>
+                      <label className="clean-label">Suggested answer</label>
                       <textarea
                         className="clean-textarea"
                         rows={4}
@@ -446,7 +456,7 @@ export const RightSetupPanel: React.FC<RightSetupPanelProps> = ({
                             onUpdateNodeData(selectedNode.id, { returnToPrevious: e.target.checked } as any)
                           }
                         />
-                        Resume previous question after answering
+                        Continue the conversation after answering
                       </label>
                     </div>
                   </>
@@ -529,16 +539,16 @@ export const RightSetupPanel: React.FC<RightSetupPanelProps> = ({
                     <div className="branches-section-head">
                       <div className="branches-title-wrap">
                         <GitFork size={13} className="text-muted" />
-                        <label className="clean-label">Outgoing Branches ({outgoingEdges.length})</label>
+                        <label className="clean-label">Customer response paths ({outgoingEdges.length})</label>
                       </div>
-                      <span className="clean-subtext">Route customer responses to next steps</span>
+                      <span className="clean-subtext">Choose what the agent should do for each meaningful customer response.</span>
                     </div>
 
                     {/* Existing Outgoing Branches */}
                     <div className="outgoing-branches-list">
                       {outgoingEdges.length === 0 ? (
                         <div className="empty-branches-notice">
-                          <span>No outgoing branches from this step yet. Click a branch below to connect.</span>
+                          <span>No response paths yet. Add one to tell the agent what to do next.</span>
                         </div>
                       ) : (
                         outgoingEdges.map((edge) => (
@@ -549,7 +559,7 @@ export const RightSetupPanel: React.FC<RightSetupPanelProps> = ({
                                 className="clean-input clean-input-sm branch-label-input"
                                 value={edge.data?.label || 'Next Step'}
                                 onChange={(e) => onUpdateEdgeLabel(edge.id, e.target.value)}
-                                placeholder="Branch condition (e.g. If Customer says YES)"
+                                placeholder="What might the customer say?"
                               />
                               <button
                                 type="button"
@@ -572,7 +582,7 @@ export const RightSetupPanel: React.FC<RightSetupPanelProps> = ({
                               >
                                 {otherNodes.map((targetNode) => (
                                   <option key={targetNode.id} value={targetNode.id}>
-                                    {targetNode.data.label} ({targetNode.data.type})
+                                    {targetNode.data.label} — {stepTypeName(targetNode.data.type)}
                                   </option>
                                 ))}
                               </select>
@@ -582,100 +592,59 @@ export const RightSetupPanel: React.FC<RightSetupPanelProps> = ({
                       )}
                     </div>
 
-                    {/* Quick Add Preset Response Branches */}
+                    {/* Customer-defined response path */}
                     <div className="quick-branch-toolbar">
-                      <span className="quick-branch-title">+ Quick Add Response Branch:</span>
-                      <div className="quick-branch-buttons-grid">
-                        <button
-                          type="button"
-                          className="btn-quick-branch green"
-                          onClick={() =>
-                            onQuickCreateAndConnect(selectedNode.id, 'If Confirmed / Yes', 'action')
-                          }
-                          title="If lead confirms -> triggers action"
-                        >
-                          + If Yes → Action
+                      {!isAddingCustomPath ? (
+                        <button type="button" className="btn-clean-outline btn-sm add-response-path-button" onClick={() => setIsAddingCustomPath(true)}>
+                          <Plus size={13} /> Add customer response path
                         </button>
-                        <button
-                          type="button"
-                          className="btn-quick-branch amber"
-                          onClick={() =>
-                            onQuickCreateAndConnect(selectedNode.id, 'If Price Objection', 'knowledge', true)
-                          }
-                          title="If lead objects on price -> routes to rebuttal"
-                        >
-                          + If Price Objection → Rebuttal
-                        </button>
-                        <button
-                          type="button"
-                          className="btn-quick-branch blue"
-                          onClick={() =>
-                            onQuickCreateAndConnect(selectedNode.id, 'If Busy / Call Later', 'action')
-                          }
-                          title="If lead is busy -> triggers callback SMS"
-                        >
-                          + If Busy → SMS Link
-                        </button>
-                        <button
-                          type="button"
-                          className="btn-quick-branch red"
-                          onClick={() =>
-                            onQuickCreateAndConnect(selectedNode.id, 'If Not Interested', 'hangup')
-                          }
-                          title="If lead rejects -> graceful opt-out"
-                        >
-                          + If Not Interested → Exit
-                        </button>
-                        <button
-                          type="button"
-                          className="btn-quick-branch purple"
-                          onClick={() =>
-                            onQuickCreateAndConnect(selectedNode.id, 'Next Question', 'question')
-                          }
-                          title="Add next sequential question"
-                        >
-                          + Next Question
-                        </button>
-                      </div>
-
-                      {/* Custom Branch Creator Form */}
-                      <div className="custom-branch-inline-form">
-                        <input
-                          type="text"
-                          className="clean-input clean-input-sm"
-                          placeholder="Or type custom condition (e.g. If asks about insurance)..."
-                          value={customBranchText}
-                          onChange={(e) => setCustomBranchText(e.target.value)}
-                        />
-                        <div className="custom-branch-target-row">
+                      ) : <div className="custom-branch-inline-form">
+                        <div className="custom-branch-heading">
+                          <span>Create a custom response path</span>
+                          <p>Describe what the customer says, then choose the next step.</p>
+                        </div>
+                        <label className="custom-branch-field">
+                          <span>Customer response</span>
+                          <input
+                            type="text"
+                            className="clean-input clean-input-sm"
+                            placeholder="e.g. Asks about contract length"
+                            value={customBranchText}
+                            onChange={(e) => setCustomBranchText(e.target.value)}
+                          />
+                        </label>
+                        <label className="custom-branch-field">
+                          <span>Then go to</span>
                           <select
                             className="clean-select clean-select-sm"
                             value={customBranchTarget}
                             onChange={(e) => setCustomBranchTarget(e.target.value)}
                           >
-                            <option value="">Select target node...</option>
+                            <option value="">Choose the next step...</option>
                             {otherNodes.map((n) => (
                               <option key={n.id} value={n.id}>
-                                {n.data.label} ({n.data.type})
+                                {n.data.label} — {stepTypeName(n.data.type)}
                               </option>
                             ))}
                           </select>
-                          <button
-                            type="button"
-                            className="btn-clean-primary btn-sm"
-                            disabled={!customBranchText.trim() || !customBranchTarget}
-                            onClick={() => {
-                              if (customBranchText && customBranchTarget) {
-                                onAddBranchConnection(selectedNode.id, customBranchText, customBranchTarget);
-                                setCustomBranchText('');
-                                setCustomBranchTarget('');
-                              }
-                            }}
-                          >
-                            Connect
-                          </button>
-                        </div>
-                      </div>
+                        </label>
+                        <button
+                          type="button"
+                          className="btn-clean-primary btn-sm custom-branch-connect"
+                          disabled={!customBranchText.trim() || !customBranchTarget}
+                          onClick={() => {
+                            if (customBranchText && customBranchTarget) {
+                              onAddBranchConnection(selectedNode.id, customBranchText, customBranchTarget);
+                              setCustomBranchText('');
+                              setCustomBranchTarget('');
+                              setIsAddingCustomPath(false);
+                            }
+                          }}
+                        >
+                          Add response path
+                        </button>
+                        <button type="button" className="btn-clean-text btn-sm" onClick={() => { setIsAddingCustomPath(false); setCustomBranchText(''); setCustomBranchTarget(''); }}>Cancel</button>
+                      </div>}
                     </div>
                   </div>
                 )}

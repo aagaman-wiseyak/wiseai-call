@@ -151,7 +151,7 @@ async def transcribe_speech(
 async def synthesize_speech(req: TTSRequest):
     """
     Synthesizes speech using WiseAI TTS:
-    POST /tts/generate_from_text
+    POST /tts/generate_from_text    
     """
     return await tts_service.synthesize_speech(
         text=req.text,

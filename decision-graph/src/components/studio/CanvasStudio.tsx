@@ -84,6 +84,7 @@ export const CanvasStudio: React.FC<CanvasStudioProps> = ({
   const [nodes, setNodes, onNodesChange] = useNodesState<CustomFlowNode>(template.initialNodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState<CustomFlowEdge>(template.initialEdges);
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
+  const [isAddStepMenuOpen, setIsAddStepMenuOpen] = useState(false);
 
   // Store pristine initial layout for 1-click revert capability
   const pristineLayoutRef = useRef<{ nodes: CustomFlowNode[]; edges: CustomFlowEdge[] } | null>(null);
@@ -552,40 +553,20 @@ export const CanvasStudio: React.FC<CanvasStudioProps> = ({
         </div>
 
         <div className="canvas-header-right">
-          {/* Quick Node Addition Buttons */}
-          <div className="quick-add-group">
+          <div className="add-step-menu-wrap">
             <button
-              className="btn-quick-add"
-              onClick={() => handleAddNode('question')}
-              title="Add Question Node"
+              className="btn-clean-secondary"
+              onClick={() => setIsAddStepMenuOpen((open) => !open)}
+              aria-expanded={isAddStepMenuOpen}
             >
-              <HelpCircle size={13} color="#4AADDE" />
-              <span>Question</span>
+              <Plus size={14} /> Add step
             </button>
-            <button
-              className="btn-quick-add"
-              onClick={() => handleAddNode('scenarioBranch')}
-              title="Add Scenario Router"
-            >
-              <GitFork size={13} color="#8280FF" />
-              <span>Branch</span>
-            </button>
-            <button
-              className="btn-quick-add"
-              onClick={() => handleAddNode('knowledge')}
-              title="Add Objection Rebuttal"
-            >
-              <ShieldAlert size={13} color="#F59E0B" />
-              <span>Rebuttal</span>
-            </button>
-            <button
-              className="btn-quick-add"
-              onClick={() => handleAddNode('action')}
-              title="Add Action Trigger"
-            >
-              <Zap size={13} color="#10B981" />
-              <span>Action</span>
-            </button>
+            {isAddStepMenuOpen && <div className="add-step-menu">
+              <button type="button" onClick={() => { handleAddNode('question'); setIsAddStepMenuOpen(false); }}><HelpCircle size={14} color="#4AADDE" /> Ask a question</button>
+              <button type="button" onClick={() => { handleAddNode('scenarioBranch'); setIsAddStepMenuOpen(false); }}><GitFork size={14} color="#8280FF" /> Check a response</button>
+              <button type="button" onClick={() => { handleAddNode('knowledge'); setIsAddStepMenuOpen(false); }}><ShieldAlert size={14} color="#F59E0B" /> Answer a concern</button>
+              <button type="button" onClick={() => { handleAddNode('action'); setIsAddStepMenuOpen(false); }}><Zap size={14} color="#10B981" /> Complete a task</button>
+            </div>}
           </div>
 
           <div className="header-divider" />
