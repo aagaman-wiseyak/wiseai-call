@@ -60,6 +60,7 @@ export const VoiceCallPage: React.FC<VoiceCallPageProps> = ({
   const [isUserSpeaking, setIsUserSpeaking] = useState(false);
   const [isTranscribing, setIsTranscribing] = useState(false);
   const [micEnabled, setMicEnabled] = useState(true);
+  const [callLanguage, setCallLanguage] = useState<'eng' | 'nep'>('eng');
 
   // Frontend Real-time Streaming
   const [activeStreamingMsgId, setActiveStreamingMsgId] = useState<string | null>(null);
@@ -201,7 +202,7 @@ export const VoiceCallPage: React.FC<VoiceCallPageProps> = ({
             try {
               const formData = new FormData();
               formData.append('file', wavBlob, 'speech.wav');
-              formData.append('language', 'en');
+              formData.append('language', callLanguage);
 
               const response = await fetch('/api/call/asr', {
                 method: 'POST',
@@ -286,7 +287,7 @@ export const VoiceCallPage: React.FC<VoiceCallPageProps> = ({
       speakText(scriptToSpeak, knowledge.agentPersona.speakingRate || 1.0, 1.0, () => {
         setSimState((prev) => ({ ...prev, isAiSpeaking: false }));
         handlePostSpeech(node, vars);
-      });
+      }, { language: callLanguage });
     } else {
       setTimeout(() => {
         setSimState((prev) => ({ ...prev, isAiSpeaking: false }));
@@ -429,6 +430,7 @@ export const VoiceCallPage: React.FC<VoiceCallPageProps> = ({
           conversation_history: newTranscript,
           conversation_state: conversationState,
           variables: simState.variables,
+          language: callLanguage,
         }),
       });
 
@@ -459,7 +461,7 @@ export const VoiceCallPage: React.FC<VoiceCallPageProps> = ({
           if (simState.audioTtsEnabled) {
             speakText(result.ai_response_text, knowledge.agentPersona.speakingRate || 1.0, 1.0, () => {
               setSimState((prev) => ({ ...prev, isAiSpeaking: false }));
-            });
+            }, { language: callLanguage });
           } else {
             setTimeout(() => setSimState((prev) => ({ ...prev, isAiSpeaking: false })), 1200);
           }
@@ -571,6 +573,23 @@ export const VoiceCallPage: React.FC<VoiceCallPageProps> = ({
       });
     }
 
+    if (callLanguage === 'nep') {
+      if (currentNode.data.type === 'greeting') {
+        chips.unshift(`हजुर, म ${knowledge.leadProfile.name} बोल्दैछु`);
+        chips.push('म अहिले अलि व्यस्त छु, पछि फोन गर्नुस् न?');
+      } else if (currentNode.data.type === 'question') {
+        chips.unshift('हजुर हुन्छ, राम्रो लाग्यो');
+        chips.push('अहिलेलाई पर्दैन होला');
+      } else if (currentNode.data.type === 'knowledge') {
+        chips.unshift('बुझेँ, अगाडि बढौँ');
+        chips.push('मलाई अझै केही कुरा सोध्नु थियो');
+      } else {
+        chips.unshift('हजुर हुन्छ');
+        chips.push('धन्यवाद');
+      }
+      return chips.slice(0, 6);
+    }
+
     // 5. Node-type specific natural conversational fallbacks
     if (currentNode.data.type === 'greeting') {
       if (!chips.some((c) => c.toLowerCase().includes('yes'))) {
@@ -628,7 +647,24 @@ export const VoiceCallPage: React.FC<VoiceCallPageProps> = ({
           </div>
         </div>
 
-        <div className="voice-header-right">
+        <div className="voice-header-right" style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+          {/* Language Toggle: English (eng) vs Nepali (nep) */}
+          <div className="call-lang-selector" title="Select Voice & AI Language">
+            <button
+              type="button"
+              className={`call-lang-btn ${callLanguage === 'eng' ? 'active' : ''}`}
+              onClick={() => setCallLanguage('eng')}
+            >
+              EN
+            </button>
+            <button
+              type="button"
+              className={`call-lang-btn ${callLanguage === 'nep' ? 'active' : ''}`}
+              onClick={() => setCallLanguage('nep')}
+            >
+              नेपाली
+            </button>
+          </div>
           <div className={`backend-indicator ${backendStatus}`} title="FastAPI Python Backend Status">
             <span className="indicator-dot" />
             <span>FastAPI: {backendStatus}</span>

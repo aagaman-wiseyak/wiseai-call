@@ -71,6 +71,7 @@ class TurnOrchestrator:
         campaign_knowledge: Optional[Dict[str, Any]],
         conversation_state: Optional[Dict[str, Any]],
         conversation_history: List[Dict[str, Any]],
+        language: str = "eng",
     ) -> Dict[str, Any]:
         state = dict(conversation_state or {})
         pending_node_id = state.get("pending_next_node_id")
@@ -95,8 +96,14 @@ class TurnOrchestrator:
             {"speaker": entry.get("speaker", "unknown"), "text": entry.get("text", "")}
             for entry in conversation_history[-6:]
         ]
+        lang_instruction = (
+            "LANGUAGE REQUIREMENT: You MUST formulate all answers and speech in natural Nepali (नेपाली भाषामा).\n"
+            if language == "nep"
+            else "LANGUAGE REQUIREMENT: Respond in natural conversational English.\n"
+        )
+
         system_prompt = (
-            "You are an outbound-call turn interpreter. Return strict JSON only.\n"
+            f"You are an outbound-call turn interpreter. Return strict JSON only.\n{lang_instruction}"
             "You may propose a route ONLY from ALLOWED_ROUTES. A customer can both answer a question and ask a question in the same utterance. "
             "When they ask a question, preserve any proposed route as pending and answer before advancing.\n"
             "Use only APPROVED_KNOWLEDGE for an answer. Never make up pricing, policy, eligibility, or company facts. "
@@ -120,9 +127,14 @@ class TurnOrchestrator:
             result = await llm_service.structured_completion(system_prompt, user_prompt)
         except Exception as error:
             logger.exception("Turn interpretation failed")
+            fallback_speech = (
+                "माफ गर्नुहोस्, मैले बुझ्न सकिन। कृपया फेरि भन्नुहुन्छ कि?"
+                if language == "nep"
+                else "I’m sorry, I couldn’t process that just now. Could you please repeat it?"
+            )
             return {
                 "next_node_id": None,
-                "ai_response_text": "I’m sorry, I couldn’t process that just now. Could you please repeat it?",
+                "ai_response_text": fallback_speech,
                 "intent_matched": "interpretation_unavailable",
                 "confidence": 0.0,
                 "knowledge_invoked": False,
