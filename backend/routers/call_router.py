@@ -20,6 +20,7 @@ class ProcessTurnRequest(BaseModel):
     conversation_history: List[Dict[str, Any]] = Field(default_factory=list)
     variables: Dict[str, Any] = Field(default_factory=dict)
     synthesize_audio: bool = False
+    language: str = "eng"
 
 class ProcessTurnResponse(BaseModel):
     next_node_id: Optional[str]
@@ -36,7 +37,7 @@ class ProcessTurnResponse(BaseModel):
 class TTSRequest(BaseModel):
     text: str
     voice_id: Optional[str] = None
-    language: str = "en"
+    language: str = "eng"
     speed: float = 1.0
 
 @router.post("/process-turn", response_model=ProcessTurnResponse)
@@ -63,13 +64,14 @@ async def process_turn(req: ProcessTurnRequest):
         user_text=req.user_text,
         current_step_prompt=current_prompt,
         campaign_knowledge=req.campaign_knowledge,
+        language=req.language,
     )
 
     if is_knowledge and answer_text:
         logger.info(f"Campaign knowledge query detected on topic '{topic}': {req.user_text}")
         audio_b64 = None
         if req.synthesize_audio:
-            tts_res = await tts_service.synthesize_speech(answer_text)
+            tts_res = await tts_service.synthesize_speech(answer_text, language=req.language)
             audio_b64 = tts_res.get("audio_base64")
 
         return ProcessTurnResponse(
@@ -131,7 +133,7 @@ async def process_turn(req: ProcessTurnRequest):
 
     audio_b64 = None
     if req.synthesize_audio and ai_speech:
-        tts_res = await tts_service.synthesize_speech(ai_speech)
+        tts_res = await tts_service.synthesize_speech(ai_speech, language=req.language)
         audio_b64 = tts_res.get("audio_base64")
 
     return ProcessTurnResponse(
@@ -155,7 +157,8 @@ async def get_isp_campaign_knowledge():
 async def synthesize_speech(req: TTSRequest):
     """
     Synthesizes speech using WiseAI TTS:
-    POST /tts/generate_from_text
+    POST /generate_from_text (omnivoice_tts)
+    Supports English ('eng') and Nepali ('nep').
     """
     return await tts_service.synthesize_speech(
         text=req.text,
@@ -167,11 +170,12 @@ async def synthesize_speech(req: TTSRequest):
 @router.post("/asr")
 async def transcribe_speech(
     file: UploadFile = File(...),
-    language: Optional[str] = Form(None),
+    language: Optional[str] = Form("eng"),
 ):
     """
     Transcribes audio using WiseAI ASR:
-    POST /asr/transcribe-from-stream
+    POST /transcribe-from-stream
+    Supports English ('eng') and Nepali ('nep').
     """
     audio_bytes = await file.read()
     return await asr_service.transcribe_audio(

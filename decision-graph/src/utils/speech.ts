@@ -126,56 +126,140 @@ class TelephoneAudioEngine {
 
 export const telephoneAudio = new TelephoneAudioEngine();
 
-// Speech Synthesis (TTS)
+// Active audio playback element for WiseAI TTS
+let activeAudioElement: HTMLAudioElement | null = null;
+
+export interface SpeakOptions {
+  language?: 'eng' | 'nep';
+  voiceId?: string;
+  speed?: number;
+  pitch?: number;
+  onEnd?: () => void;
+  onError?: (err: any) => void;
+}
+
+// Fallback browser speech synthesis
+const fallbackBrowserSpeech = (
+  cleanText: string,
+  language: 'eng' | 'nep' = 'eng',
+  rate = 1.0,
+  pitch = 1.0,
+  onEnd?: () => void
+) => {
+  if (typeof window === 'undefined' || !window.speechSynthesis) {
+    if (onEnd) onEnd();
+    return;
+  }
+
+  try {
+    window.speechSynthesis.cancel();
+    const utterance = new SpeechSynthesisUtterance(cleanText);
+    utterance.rate = rate;
+    utterance.pitch = pitch;
+
+    if (language === 'nep') {
+      utterance.lang = 'ne-NP';
+    } else {
+      utterance.lang = 'en-US';
+      const voices = window.speechSynthesis.getVoices();
+      const preferred = voices.find(
+        (v) =>
+          v.lang.startsWith('en') &&
+          (v.name.includes('Natural') ||
+            v.name.includes('Google') ||
+            v.name.includes('Samantha') ||
+            v.name.includes('Karen') ||
+            v.name.includes('Daniel'))
+      ) || voices.find((v) => v.lang.startsWith('en'));
+      if (preferred) utterance.voice = preferred;
+    }
+
+    utterance.onend = () => { if (onEnd) onEnd(); };
+    utterance.onerror = () => { if (onEnd) onEnd(); };
+
+    window.speechSynthesis.speak(utterance);
+  } catch (err) {
+    console.warn('Browser speech synthesis error:', err);
+    if (onEnd) onEnd();
+  }
+};
+
+/**
+ * Synthesizes and plays speech using WiseAI TTS endpoint (/generate_from_text).
+ * Supports English ('eng') and Nepali ('nep').
+ * Falls back to browser synthesis if API is unreachable.
+ */
 export const speakText = (
   text: string,
   rate = 1.0,
   pitch = 1.0,
-  onEnd?: () => void
-): SpeechSynthesisUtterance | null => {
-  if (typeof window === 'undefined' || !window.speechSynthesis) {
+  onEnd?: () => void,
+  options?: SpeakOptions
+): void => {
+  stopSpeech();
+
+  const cleanText = text.replace(/\{\{.*?\}\}/g, '').trim();
+  if (!cleanText) {
     if (onEnd) onEnd();
-    return null;
+    return;
   }
 
-  // Cancel any ongoing speech
-  window.speechSynthesis.cancel();
+  const lang: 'eng' | 'nep' = options?.language || (
+    /[\u0900-\u097F]/.test(cleanText) ? 'nep' : 'eng'
+  );
 
-  // Clean text from template variables if any left
-  const cleanText = text.replace(/\{\{.*?\}\}/g, '');
-  const utterance = new SpeechSynthesisUtterance(cleanText);
-  utterance.rate = rate;
-  utterance.pitch = pitch;
+  // Attempt WiseAI TTS via FastAPI backend proxy
+  (async () => {
+    try {
+      const response = await fetch('/api/call/tts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          text: cleanText,
+          language: lang,
+          voice_id: options?.voiceId || 'Prakash_0',
+          speed: options?.speed || rate || 1.0,
+        }),
+      });
 
-  // Try to pick a natural sounding English voice
-  const voices = window.speechSynthesis.getVoices();
-  const preferredVoice = voices.find(
-    (v) =>
-      v.lang.startsWith('en') &&
-      (v.name.includes('Natural') ||
-        v.name.includes('Google') ||
-        v.name.includes('Samantha') ||
-        v.name.includes('Karen') ||
-        v.name.includes('Daniel'))
-  ) || voices.find((v) => v.lang.startsWith('en'));
+      if (response.ok) {
+        const data = await response.json();
+        if (data.audio_base64) {
+          const audio = new Audio(`data:audio/wav;base64,${data.audio_base64}`);
+          activeAudioElement = audio;
 
-  if (preferredVoice) {
-    utterance.voice = preferredVoice;
-  }
+          audio.onended = () => {
+            activeAudioElement = null;
+            if (onEnd) onEnd();
+          };
 
-  utterance.onend = () => {
-    if (onEnd) onEnd();
-  };
+          audio.onerror = (e) => {
+            console.warn('Audio playback error, falling back:', e);
+            activeAudioElement = null;
+            fallbackBrowserSpeech(cleanText, lang, rate, pitch, onEnd);
+          };
 
-  utterance.onerror = () => {
-    if (onEnd) onEnd();
-  };
+          await audio.play();
+          return;
+        }
+      }
+    } catch (err) {
+      console.warn('WiseAI TTS fetch error, falling back to browser speech:', err);
+    }
 
-  window.speechSynthesis.speak(utterance);
-  return utterance;
+    // Fallback if API response had no audio or request failed
+    fallbackBrowserSpeech(cleanText, lang, rate, pitch, onEnd);
+  })();
 };
 
 export const stopSpeech = () => {
+  if (activeAudioElement) {
+    try {
+      activeAudioElement.pause();
+      activeAudioElement.currentTime = 0;
+    } catch (_) {}
+    activeAudioElement = null;
+  }
   if (typeof window !== 'undefined' && window.speechSynthesis) {
     window.speechSynthesis.cancel();
   }

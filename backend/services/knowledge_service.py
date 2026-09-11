@@ -61,31 +61,38 @@ class CampaignKnowledgeService:
         user_text: str,
         current_step_prompt: str,
         campaign_knowledge: Optional[Dict[str, Any]] = None,
+        language: str = "eng",
     ) -> Tuple[bool, Optional[str], Optional[str]]:
         """
         Determines if user utterance is asking an informational/campaign question (speeds, packages, discounts, hardware, etc.).
         If yes, generates an accurate answer grounded in the campaign knowledge,
         and returns (is_question=True, answer_text, topic_summary).
+        Supports Nepali ('nep') and English ('eng').
         """
-        # Merge campaign knowledge with ISP defaults if relevant
         knowledge_context = campaign_knowledge or DEFAULT_ISP_KNOWLEDGE
+        is_nepali = language.lower().strip() in ["nep", "nepali", "ne"]
+        lang_instruction = (
+            "LANGUAGE REQUIREMENT: Respond strictly in natural, conversational Nepali (नेपाली भाषामा). Keep it under 40 words."
+            if is_nepali
+            else "LANGUAGE REQUIREMENT: Respond in natural English under 40 words."
+        )
 
         system_prompt = (
             "You are an AI assistant for an Outbound Call Campaign Knowledge Engine.\n"
             "Analyze the customer's response to see if they are asking an informational question, "
-            "inquiring about campaign details (e.g. packages, speeds, Mbps, pricing, discounts, router/modem, contract terms), "
-            "or raising a specific knowledge objection.\n\n"
-            f"CAMPAIGN KNOWLEDGE CONTEXT:\n{json.dumps(knowledge_context, indent=2)}\n\n"
+            "inquiring about campaign details, packages, pricing, qualifications, services, or raising a specific domain objection.\n\n"
+            f"{lang_instruction}\n\n"
+            f"CAMPAIGN KNOWLEDGE CONTEXT:\n{json.dumps(knowledge_context, indent=2, ensure_ascii=False)}\n\n"
             "CURRENT STEP PROMPT AGENT SPOKE:\n"
             f"\"{current_step_prompt}\"\n\n"
             "OUTPUT FORMAT (STRICT JSON ONLY):\n"
             "{\n"
             "  \"is_campaign_question\": true/false,\n"
-            "  \"topic\": \"packages_and_pricing\" | \"discounts\" | \"equipment_router\" | \"contract\" | \"general_inquiry\" | \"none\",\n"
+            "  \"topic\": \"<string inquiry topic or 'none'>\",\n"
             "  \"answer\": \"Concise, friendly answer spoken as the agent (under 40 words) strictly using the provided campaign facts, ending with a natural prompt back to the pending decision.\",\n"
             "  \"confidence\": 0.0 to 1.0\n"
             "}\n"
-            "If the customer is just answering the question directly (e.g. 'Yes', 'No', 'I use 300 Mbps', 'I want the cheaper one') without asking for information, set is_campaign_question to false."
+            "If the customer is just answering the question directly (e.g. 'Yes', 'No', or providing their answer) without asking for information, set is_campaign_question to false."
         )
 
         try:
@@ -100,14 +107,23 @@ class CampaignKnowledgeService:
             return False, None, None
         except Exception as e:
             logger.warning(f"Knowledge check fallback on error: {e}")
-            # Fallback simple keyword match
             lower = user_text.lower()
-            if any(k in lower for k in ["what package", "what speed", "how much mbps", "what discount", "router", "plans do you have", "options"]):
-                ans = (
-                    "We have Fiber 100 Mbps at $29.99, Ultra 300 Mbps at $49.99 with a free Wi-Fi 6 router, "
-                    "and 1 Gbps at $79.99 with up to 25% annual renewal discount! Which speed tier fits your household best?"
-                )
-                return True, ans, "packages_and_pricing"
+            
+            # Dynamic fallback: search campaign FAQs
+            if campaign_knowledge and "faqs" in campaign_knowledge:
+                for faq in campaign_knowledge.get("faqs", []):
+                    keywords = [k.lower() for k in faq.get("keywords", [])]
+                    q_words = [w.lower() for w in faq.get("question", "").split() if len(w) > 3]
+                    if any(k in lower for k in keywords) or any(w in lower for w in q_words):
+                        return True, faq.get("answer"), faq.get("id", "faq_match")
+            
+            # Dynamic fallback: search campaign global objections
+            if campaign_knowledge and "globalObjections" in campaign_knowledge:
+                for obj in campaign_knowledge.get("globalObjections", []):
+                    trigger = obj.get("trigger", "").lower().replace("?", "").replace("!", "")
+                    if trigger and trigger in lower:
+                        return True, obj.get("response"), "global_objection"
+
             return False, None, None
 
 knowledge_service = CampaignKnowledgeService()

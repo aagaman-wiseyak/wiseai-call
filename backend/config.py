@@ -14,15 +14,18 @@ class Settings(BaseSettings):
     LLM_TIMEOUT: float = 60.0
     ENABLE_THINKING: bool = False
     
-    # WiseAI ASR Endpoint (/asr/transcribe-from-stream)
-    ASR_API_URL: str = "https://dev-models.wiseai.wiseyak.com/asr/transcribe-from-stream"
+    # WiseAI ASR Endpoint (/transcribe-from-stream)
+    ASR_API_URL: str = "https://dev-asr.wiseai.wiseyak.com/transcribe-from-stream"
+    ASR_FALLBACK_URL: str = "https://dev-models.wiseai.wiseyak.com/asr/transcribe-from-stream"
     ASR_TIMEOUT: float = 30.0
-    ASR_LANGUAGE: str = "en"
+    ASR_LANGUAGE: str = "eng"
 
-    # WiseAI TTS Endpoint (/tts/generate_from_text)
-    TTS_API_URL: str = "https://dev-models.wiseai.wiseyak.com/tts/generate_from_text"
+    # WiseAI TTS Endpoint (/generate_from_text)
+    TTS_API_URL: str = "https://dev-tts.wiseai.wiseyak.com/generate_from_text"
+    TTS_FALLBACK_URL: str = "https://dev-models.wiseai.wiseyak.com/tts/generate_from_text"
     TTS_TIMEOUT: float = 45.0
     TTS_DEFAULT_VOICE: str = "Prakash_0"
+    TTS_MODEL: str = "omnivoice_tts"
     
     # CORS
     CORS_ORIGINS: list[str] = [
