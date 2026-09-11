@@ -6,6 +6,8 @@ import {
   OutboundNodeType,
   CampaignKnowledge,
   BranchCondition,
+  KnowledgeItem,
+  KnowledgeContentType,
 } from '../../types/flow';
 import {
   Sliders,
@@ -57,31 +59,40 @@ const renderTypePill = (type: OutboundNodeType) => {
     case 'scenarioBranch':
       return (
         <span className="step-type-pill scenarioBranch">
-          <GitFork size={10} /> Branch
+          <GitFork size={10} /> Response check
         </span>
       );
     case 'knowledge':
       return (
         <span className="step-type-pill knowledge">
-          <ShieldAlert size={10} /> Rebuttal
+          <ShieldAlert size={10} /> Answer concern
         </span>
       );
     case 'action':
       return (
         <span className="step-type-pill action">
-          <Zap size={10} /> Action
+          <Zap size={10} /> Complete task
         </span>
       );
     case 'hangup':
       return (
         <span className="step-type-pill hangup">
-          <PhoneOff size={10} /> Hangup
+          <PhoneOff size={10} /> End call
         </span>
       );
     default:
       return <span className="step-type-pill">{type}</span>;
   }
 };
+
+const stepTypeName = (type: OutboundNodeType) => ({
+  greeting: 'opening',
+  question: 'question',
+  scenarioBranch: 'response check',
+  knowledge: 'answer concern',
+  action: 'complete task',
+  hangup: 'end call',
+}[type]);
 
 export const RightSetupPanel: React.FC<RightSetupPanelProps> = ({
   nodes,
@@ -103,6 +114,7 @@ export const RightSetupPanel: React.FC<RightSetupPanelProps> = ({
   const [refinePrompt, setRefinePrompt] = useState('');
   const [customBranchText, setCustomBranchText] = useState('');
   const [customBranchTarget, setCustomBranchTarget] = useState('');
+  const [isAddingCustomPath, setIsAddingCustomPath] = useState(false);
 
   const outgoingEdges = selectedNode ? edges.filter((e) => e.source === selectedNode.id) : [];
   const otherNodes = selectedNode ? nodes.filter((n) => n.id !== selectedNode.id) : [];
@@ -148,6 +160,36 @@ export const RightSetupPanel: React.FC<RightSetupPanelProps> = ({
     setRefinePrompt('');
   };
 
+  const addKnowledgeItem = () => {
+    const item: KnowledgeItem = {
+      id: `knowledge-${Date.now()}`,
+      title: 'Untitled campaign information',
+      contentType: 'other',
+      tags: [],
+      content: '',
+      source: '',
+      version: '1.0',
+      status: 'draft',
+    };
+    onUpdateKnowledge({ ...knowledge, knowledgeItems: [...(knowledge.knowledgeItems || []), item] });
+  };
+
+  const updateKnowledgeItem = (id: string, fields: Partial<KnowledgeItem>) => {
+    onUpdateKnowledge({
+      ...knowledge,
+      knowledgeItems: (knowledge.knowledgeItems || []).map((item) =>
+        item.id === id ? { ...item, ...fields } : item
+      ),
+    });
+  };
+
+  const removeKnowledgeItem = (id: string) => {
+    onUpdateKnowledge({
+      ...knowledge,
+      knowledgeItems: (knowledge.knowledgeItems || []).filter((item) => item.id !== id),
+    });
+  };
+
   return (
     <aside className="right-setup-panel">
       {/* Tab Navigation */}
@@ -166,13 +208,6 @@ export const RightSetupPanel: React.FC<RightSetupPanelProps> = ({
           <Sliders size={14} />
           <span>{selectedNode ? selectedNode.data.label : 'Node Inspector'}</span>
         </button>
-        <button
-          className={`panel-tab ${activeTab === 'knowledge' ? 'active' : ''}`}
-          onClick={() => setActiveTab('knowledge')}
-        >
-          <BookOpen size={14} />
-          <span>Knowledge</span>
-        </button>
       </div>
 
       {/* Main Content Area */}
@@ -181,9 +216,9 @@ export const RightSetupPanel: React.FC<RightSetupPanelProps> = ({
         {activeTab === 'flow' && (
           <div className="flow-steps-view">
             <div className="view-intro">
-              <span className="view-title">Decision Tree Sequence</span>
+              <span className="view-title">Conversation steps</span>
               <p className="view-desc">
-                Configure greetings, questions, and scenarios here. All updates sync live to the canvas.
+                Select a step to adjust what the agent says and where customer responses should go.
               </p>
             </div>
 
@@ -246,16 +281,18 @@ export const RightSetupPanel: React.FC<RightSetupPanelProps> = ({
             {selectedNode ? (
               <div className="inspector-content">
                 <div className="inspector-head">
-                  <div>
-                    <span className="inspector-type">{selectedNode.data.type} node</span>
+                  <div className="inspector-head-title-wrap">
+                    <span className="inspector-type">{stepTypeName(selectedNode.data.type)} step</span>
                     <h3 className="inspector-title">{selectedNode.data.label}</h3>
                   </div>
                   <button
-                    className="btn-text-danger"
+                    type="button"
+                    className="btn-delete-node"
                     onClick={() => onDeleteNode(selectedNode.id)}
                     title="Delete node"
                   >
-                    <Trash2 size={14} />
+                    <Trash2 size={13} />
+                    <span>Delete</span>
                   </button>
                 </div>
 
@@ -274,46 +311,17 @@ export const RightSetupPanel: React.FC<RightSetupPanelProps> = ({
 
                 {/* GREETING NODE FIELDS */}
                 {selectedNode.data.type === 'greeting' && (
-                  <>
-                    <div className="clean-field-group">
-                      <label className="clean-label">Opening Speech Script</label>
-                      <textarea
-                        className="clean-textarea"
-                        rows={4}
-                        value={(selectedNode.data as any).openingScript || ''}
-                        onChange={(e) =>
-                          onUpdateNodeData(selectedNode.id, { openingScript: e.target.value } as any)
-                        }
-                      />
-                    </div>
-
-                    <div className="clean-checkbox-row">
-                      <label>
-                        <input
-                          type="checkbox"
-                          checked={(selectedNode.data as any).enableAmd || false}
-                          onChange={(e) =>
-                            onUpdateNodeData(selectedNode.id, { enableAmd: e.target.checked } as any)
-                          }
-                        />
-                        Enable Answering Machine Detection (AMD)
-                      </label>
-                    </div>
-
-                    {(selectedNode.data as any).enableAmd && (
-                      <div className="clean-field-group">
-                        <label className="clean-label">Voicemail Drop Message</label>
-                        <textarea
-                          className="clean-textarea"
-                          rows={3}
-                          value={(selectedNode.data as any).voicemailScript || ''}
-                          onChange={(e) =>
-                            onUpdateNodeData(selectedNode.id, { voicemailScript: e.target.value } as any)
-                          }
-                        />
-                      </div>
-                    )}
-                  </>
+                  <div className="clean-field-group">
+                    <label className="clean-label">Opening Speech Script</label>
+                    <textarea
+                      className="clean-textarea"
+                      rows={4}
+                      value={(selectedNode.data as any).openingScript || ''}
+                      onChange={(e) =>
+                        onUpdateNodeData(selectedNode.id, { openingScript: e.target.value } as any)
+                      }
+                    />
+                  </div>
                 )}
 
                 {/* QUESTION NODE FIELDS */}
@@ -363,7 +371,7 @@ export const RightSetupPanel: React.FC<RightSetupPanelProps> = ({
                 {selectedNode.data.type === 'scenarioBranch' && (
                   <>
                     <div className="clean-field-group">
-                      <label className="clean-label">Evaluation Criteria</label>
+                      <label className="clean-label">How should the response be recognized?</label>
                       <input
                         type="text"
                         className="clean-input"
@@ -376,7 +384,7 @@ export const RightSetupPanel: React.FC<RightSetupPanelProps> = ({
 
                     <div className="branches-section">
                       <div className="section-head-inline">
-                        <label className="clean-label">Branch Scenarios</label>
+                        <label className="clean-label">Customer response options</label>
                         <button className="btn-clean-secondary btn-sm" onClick={addBranchToSelected}>
                           <Plus size={12} /> Add Scenario
                         </button>
@@ -416,7 +424,7 @@ export const RightSetupPanel: React.FC<RightSetupPanelProps> = ({
                 {selectedNode.data.type === 'knowledge' && (
                   <>
                     <div className="clean-field-group">
-                      <label className="clean-label">Objection Topic</label>
+                      <label className="clean-label">Customer concern or question</label>
                       <input
                         type="text"
                         className="clean-input"
@@ -428,7 +436,7 @@ export const RightSetupPanel: React.FC<RightSetupPanelProps> = ({
                     </div>
 
                     <div className="clean-field-group">
-                      <label className="clean-label">Rebuttal / FAQ Answer</label>
+                      <label className="clean-label">Suggested answer</label>
                       <textarea
                         className="clean-textarea"
                         rows={4}
@@ -448,7 +456,7 @@ export const RightSetupPanel: React.FC<RightSetupPanelProps> = ({
                             onUpdateNodeData(selectedNode.id, { returnToPrevious: e.target.checked } as any)
                           }
                         />
-                        Resume previous question after answering
+                        Continue the conversation after answering
                       </label>
                     </div>
                   </>
@@ -531,16 +539,16 @@ export const RightSetupPanel: React.FC<RightSetupPanelProps> = ({
                     <div className="branches-section-head">
                       <div className="branches-title-wrap">
                         <GitFork size={13} className="text-muted" />
-                        <label className="clean-label">Outgoing Branches ({outgoingEdges.length})</label>
+                        <label className="clean-label">Customer response paths ({outgoingEdges.length})</label>
                       </div>
-                      <span className="clean-subtext">Route customer responses to next steps</span>
+                      <span className="clean-subtext">Choose what the agent should do for each meaningful customer response.</span>
                     </div>
 
                     {/* Existing Outgoing Branches */}
                     <div className="outgoing-branches-list">
                       {outgoingEdges.length === 0 ? (
                         <div className="empty-branches-notice">
-                          <span>No outgoing branches from this step yet. Click a branch below to connect.</span>
+                          <span>No response paths yet. Add one to tell the agent what to do next.</span>
                         </div>
                       ) : (
                         outgoingEdges.map((edge) => (
@@ -551,7 +559,7 @@ export const RightSetupPanel: React.FC<RightSetupPanelProps> = ({
                                 className="clean-input clean-input-sm branch-label-input"
                                 value={edge.data?.label || 'Next Step'}
                                 onChange={(e) => onUpdateEdgeLabel(edge.id, e.target.value)}
-                                placeholder="Branch condition (e.g. If Customer says YES)"
+                                placeholder="What might the customer say?"
                               />
                               <button
                                 type="button"
@@ -574,7 +582,7 @@ export const RightSetupPanel: React.FC<RightSetupPanelProps> = ({
                               >
                                 {otherNodes.map((targetNode) => (
                                   <option key={targetNode.id} value={targetNode.id}>
-                                    {targetNode.data.label} ({targetNode.data.type})
+                                    {targetNode.data.label} — {stepTypeName(targetNode.data.type)}
                                   </option>
                                 ))}
                               </select>
@@ -584,100 +592,59 @@ export const RightSetupPanel: React.FC<RightSetupPanelProps> = ({
                       )}
                     </div>
 
-                    {/* Quick Add Preset Response Branches */}
+                    {/* Customer-defined response path */}
                     <div className="quick-branch-toolbar">
-                      <span className="quick-branch-title">+ Quick Add Response Branch:</span>
-                      <div className="quick-branch-buttons-grid">
-                        <button
-                          type="button"
-                          className="btn-quick-branch green"
-                          onClick={() =>
-                            onQuickCreateAndConnect(selectedNode.id, 'If Confirmed / Yes', 'action')
-                          }
-                          title="If lead confirms -> triggers action"
-                        >
-                          + If Yes → Action
+                      {!isAddingCustomPath ? (
+                        <button type="button" className="btn-clean-outline btn-sm add-response-path-button" onClick={() => setIsAddingCustomPath(true)}>
+                          <Plus size={13} /> Add customer response path
                         </button>
-                        <button
-                          type="button"
-                          className="btn-quick-branch amber"
-                          onClick={() =>
-                            onQuickCreateAndConnect(selectedNode.id, 'If Price Objection', 'knowledge', true)
-                          }
-                          title="If lead objects on price -> routes to rebuttal"
-                        >
-                          + If Price Objection → Rebuttal
-                        </button>
-                        <button
-                          type="button"
-                          className="btn-quick-branch blue"
-                          onClick={() =>
-                            onQuickCreateAndConnect(selectedNode.id, 'If Busy / Call Later', 'action')
-                          }
-                          title="If lead is busy -> triggers callback SMS"
-                        >
-                          + If Busy → SMS Link
-                        </button>
-                        <button
-                          type="button"
-                          className="btn-quick-branch red"
-                          onClick={() =>
-                            onQuickCreateAndConnect(selectedNode.id, 'If Not Interested', 'hangup')
-                          }
-                          title="If lead rejects -> graceful opt-out"
-                        >
-                          + If Not Interested → Exit
-                        </button>
-                        <button
-                          type="button"
-                          className="btn-quick-branch purple"
-                          onClick={() =>
-                            onQuickCreateAndConnect(selectedNode.id, 'Next Question', 'question')
-                          }
-                          title="Add next sequential question"
-                        >
-                          + Next Question
-                        </button>
-                      </div>
-
-                      {/* Custom Branch Creator Form */}
-                      <div className="custom-branch-inline-form">
-                        <input
-                          type="text"
-                          className="clean-input clean-input-sm"
-                          placeholder="Or type custom condition (e.g. If asks about insurance)..."
-                          value={customBranchText}
-                          onChange={(e) => setCustomBranchText(e.target.value)}
-                        />
-                        <div className="custom-branch-target-row">
+                      ) : <div className="custom-branch-inline-form">
+                        <div className="custom-branch-heading">
+                          <span>Create a custom response path</span>
+                          <p>Describe what the customer says, then choose the next step.</p>
+                        </div>
+                        <label className="custom-branch-field">
+                          <span>Customer response</span>
+                          <input
+                            type="text"
+                            className="clean-input clean-input-sm"
+                            placeholder="e.g. Asks about contract length"
+                            value={customBranchText}
+                            onChange={(e) => setCustomBranchText(e.target.value)}
+                          />
+                        </label>
+                        <label className="custom-branch-field">
+                          <span>Then go to</span>
                           <select
                             className="clean-select clean-select-sm"
                             value={customBranchTarget}
                             onChange={(e) => setCustomBranchTarget(e.target.value)}
                           >
-                            <option value="">Select target node...</option>
+                            <option value="">Choose the next step...</option>
                             {otherNodes.map((n) => (
                               <option key={n.id} value={n.id}>
-                                {n.data.label} ({n.data.type})
+                                {n.data.label} — {stepTypeName(n.data.type)}
                               </option>
                             ))}
                           </select>
-                          <button
-                            type="button"
-                            className="btn-clean-primary btn-sm"
-                            disabled={!customBranchText.trim() || !customBranchTarget}
-                            onClick={() => {
-                              if (customBranchText && customBranchTarget) {
-                                onAddBranchConnection(selectedNode.id, customBranchText, customBranchTarget);
-                                setCustomBranchText('');
-                                setCustomBranchTarget('');
-                              }
-                            }}
-                          >
-                            Connect
-                          </button>
-                        </div>
-                      </div>
+                        </label>
+                        <button
+                          type="button"
+                          className="btn-clean-primary btn-sm custom-branch-connect"
+                          disabled={!customBranchText.trim() || !customBranchTarget}
+                          onClick={() => {
+                            if (customBranchText && customBranchTarget) {
+                              onAddBranchConnection(selectedNode.id, customBranchText, customBranchTarget);
+                              setCustomBranchText('');
+                              setCustomBranchTarget('');
+                              setIsAddingCustomPath(false);
+                            }
+                          }}
+                        >
+                          Add response path
+                        </button>
+                        <button type="button" className="btn-clean-text btn-sm" onClick={() => { setIsAddingCustomPath(false); setCustomBranchText(''); setCustomBranchTarget(''); }}>Cancel</button>
+                      </div>}
                     </div>
                   </div>
                 )}
@@ -696,9 +663,9 @@ export const RightSetupPanel: React.FC<RightSetupPanelProps> = ({
         {activeTab === 'knowledge' && (
           <div className="knowledge-view">
             <div className="view-intro">
-              <span className="view-title">Campaign Persona & Context</span>
+              <span className="view-title">Campaign Knowledge Handbook</span>
               <p className="view-desc">
-                Setup agent identity, dynamic lead variables, and global objection responses.
+                Add the approved facts your agent can use across this entire campaign. Call steps decide what to ask; they do not own prices, policies, or answers.
               </p>
             </div>
 
@@ -732,39 +699,76 @@ export const RightSetupPanel: React.FC<RightSetupPanelProps> = ({
               />
             </div>
 
-            <div className="clean-field-group">
-              <label className="clean-label">Target Lead Name (&#123;&#123;lead_name&#125;&#125;)</label>
-              <input
-                type="text"
-                className="clean-input"
-                value={knowledge.leadProfile.name}
-                onChange={(e) =>
-                  onUpdateKnowledge({
-                    ...knowledge,
-                    leadProfile: { ...knowledge.leadProfile, name: e.target.value },
-                  })
-                }
-              />
-            </div>
-
-            <div className="clean-field-group">
-              <label className="clean-label">Target Phone Number</label>
-              <input
-                type="text"
-                className="clean-input"
-                value={knowledge.leadProfile.phone}
-                onChange={(e) =>
-                  onUpdateKnowledge({
-                    ...knowledge,
-                    leadProfile: { ...knowledge.leadProfile, phone: e.target.value },
-                  })
-                }
-              />
-            </div>
-
             <div className="knowledge-summary-box">
-              <span>{knowledge.globalObjections.length} Global Objections Loaded</span>
-              <span>{knowledge.faqs.length} Campaign FAQs Loaded</span>
+              <span>{(knowledge.knowledgeItems || []).filter((item) => item.status === 'approved').length} Approved items</span>
+              <span>{(knowledge.knowledgeItems || []).filter((item) => item.status === 'draft').length} Draft items</span>
+            </div>
+
+            <div className="branches-section">
+              <div className="section-head-inline">
+                <div>
+                  <label className="clean-label">Approved campaign content</label>
+                  <p className="clean-subtext">Only approved items are available to the live AI agent.</p>
+                </div>
+                <button type="button" className="btn-clean-primary btn-sm" onClick={addKnowledgeItem}>
+                  <Plus size={12} /> Add information
+                </button>
+              </div>
+
+              {(knowledge.knowledgeItems || []).length === 0 ? (
+                <div className="empty-branches-notice">
+                  <span>Add plans, prices, promotions, fees, policies, or service details. Include a source and version before approval.</span>
+                </div>
+              ) : (
+                (knowledge.knowledgeItems || []).map((item) => (
+                  <div className="clean-branch-editor" key={item.id}>
+                    <div className="branch-top-row">
+                      <input
+                        className="clean-input clean-input-sm"
+                        value={item.title}
+                        placeholder="e.g. 300 Mbps annual renewal offer"
+                        onChange={(e) => updateKnowledgeItem(item.id, { title: e.target.value })}
+                      />
+                      <button type="button" className="btn-icon-danger-sm" title="Remove information" onClick={() => removeKnowledgeItem(item.id)}>
+                        <Trash2 size={13} />
+                      </button>
+                    </div>
+                    <div className="form-grid-2 mt-1">
+                      <select className="clean-select clean-select-sm" value={item.contentType} onChange={(e) => updateKnowledgeItem(item.id, { contentType: e.target.value as KnowledgeContentType })}>
+                        <option value="product_offer">Product / offer</option>
+                        <option value="policy">Policy</option>
+                        <option value="process">Process / procedure</option>
+                        <option value="service">Service / support</option>
+                        <option value="troubleshooting">Troubleshooting</option>
+                        <option value="compliance">Compliance / privacy</option>
+                        <option value="company_information">Company information</option>
+                        <option value="escalation">Escalation / handoff</option>
+                        <option value="reference">Reference</option>
+                        <option value="other">Other</option>
+                      </select>
+                      <select className="clean-select clean-select-sm" value={item.status} onChange={(e) => updateKnowledgeItem(item.id, { status: e.target.value as KnowledgeItem['status'] })}>
+                        <option value="draft">Draft — not used on calls</option>
+                        <option value="approved">Approved — agent may use</option>
+                        <option value="archived">Archived — not used</option>
+                      </select>
+                    </div>
+                    <textarea
+                      className="clean-textarea mt-1"
+                      rows={4}
+                      value={item.content}
+                      placeholder="Approved customer-facing facts. Be specific about plan, price, eligibility, conditions, and limitations."
+                      onChange={(e) => updateKnowledgeItem(item.id, { content: e.target.value })}
+                    />
+                    <input className="clean-input clean-input-sm mt-1" value={item.tags.join(', ')} placeholder="Tags, e.g. renewal, billing, privacy" onChange={(e) => updateKnowledgeItem(item.id, { tags: e.target.value.split(',').map((tag) => tag.trim()).filter(Boolean) })} />
+                    <input className="clean-input clean-input-sm mt-1" value={item.source} placeholder="Source, e.g. Vianet Renewal Offer Sheet — Sep 2026" onChange={(e) => updateKnowledgeItem(item.id, { source: e.target.value })} />
+                    <div className="form-grid-2 mt-1">
+                      <input className="clean-input clean-input-sm" value={item.version} placeholder="Version" onChange={(e) => updateKnowledgeItem(item.id, { version: e.target.value })} />
+                      <input className="clean-input clean-input-sm" type="date" value={item.effectiveFrom || ''} aria-label="Effective from" onChange={(e) => updateKnowledgeItem(item.id, { effectiveFrom: e.target.value || undefined })} />
+                      <input className="clean-input clean-input-sm" type="date" value={item.effectiveUntil || ''} aria-label="Effective until" onChange={(e) => updateKnowledgeItem(item.id, { effectiveUntil: e.target.value || undefined })} />
+                    </div>
+                  </div>
+                ))
+              )}
             </div>
           </div>
         )}

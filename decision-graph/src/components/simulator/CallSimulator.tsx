@@ -481,7 +481,6 @@ export const CallSimulator: React.FC<CallSimulatorProps> = ({
       return [
         'Yes, this is Alex speaking',
         'Who is calling?',
-        'Leave a message (Voicemail)',
         'I am in a meeting right now',
         'Wrong number',
       ];
@@ -636,8 +635,8 @@ export const CallSimulator: React.FC<CallSimulatorProps> = ({
                     {msg.speaker === 'agent'
                       ? knowledge.agentPersona.name
                       : msg.speaker === 'lead'
-                      ? knowledge.leadProfile.name
-                      : 'SYSTEM'}
+                        ? knowledge.leadProfile.name
+                        : 'SYSTEM'}
                   </span>
                   <span className="msg-time">{msg.timestamp}</span>
                 </div>

@@ -4,6 +4,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from config import settings
 from routers.call_router import router as call_router
 from routers.template_router import router as template_router
+from routers.campaign_router import router as campaign_router
+from routers.llm_router import router as llm_router
 
 logging.basicConfig(
     level=logging.INFO,
@@ -28,6 +30,8 @@ app.add_middleware(
 # Register routers
 app.include_router(call_router)
 app.include_router(template_router)
+app.include_router(campaign_router)
+app.include_router(llm_router)
 
 @app.get("/api/health")
 async def health():

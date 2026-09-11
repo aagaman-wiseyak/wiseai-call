@@ -9,8 +9,11 @@ import { CAMPAIGN_TEMPLATES, CampaignTemplate } from './templates/campaignTempla
 import { TemplateHub } from './components/templates/TemplateHub';
 import { CanvasStudio } from './components/studio/CanvasStudio';
 import { VoiceCallPage } from './components/call/VoiceCallPage';
+import { saveCampaign } from './utils/campaignClient';
+import { CampaignWorkspace } from './components/workspace/CampaignWorkspace';
+import { generateDecisionGraphWithLlm } from './utils/llmClient';
 
-type AppStage = 'templates' | 'canvas' | 'voice_call';
+type AppStage = 'templates' | 'workspace' | 'canvas' | 'voice_call';
 
 export default function App() {
   const [stage, setStage] = useState<AppStage>('templates');
@@ -27,7 +30,7 @@ export default function App() {
     setActiveNodes(template.initialNodes);
     setActiveEdges(template.initialEdges);
     setActiveKnowledge(template.knowledge);
-    setStage('canvas');
+    setStage('workspace');
   };
 
   // 2. START BLANK
@@ -59,21 +62,9 @@ export default function App() {
         complianceNotice: 'This call is recorded for quality assurance.',
         globalObjections: [],
         faqs: [],
+        knowledgeItems: [],
       },
-      initialNodes: [
-        {
-          id: 'node-greeting',
-          type: 'greeting',
-          position: { x: 350, y: 80 },
-          data: {
-            type: 'greeting',
-            label: 'Initial Greeting',
-            openingScript: 'Hello {{lead_name}}, this is {{agent_name}} calling from {{company}}.',
-            voiceStyle: 'Professional',
-            enableAmd: true,
-          },
-        },
-      ],
+      initialNodes: [],
       initialEdges: [],
     };
 
@@ -81,15 +72,40 @@ export default function App() {
   };
 
   // 3. PROCEED TO VOICE CALL (Lock in canvas state)
-  const handleProceedToCall = (
+  const handleProceedToCall = async (
     nodes: CustomFlowNode[],
     edges: CustomFlowEdge[],
     knowledge: CampaignKnowledge
   ) => {
+    try {
+      await saveCampaign(knowledge, nodes, edges);
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : 'Campaign could not be saved.');
+      return;
+    }
     setActiveNodes(nodes);
     setActiveEdges(edges);
     setActiveKnowledge(knowledge);
     setStage('voice_call');
+  };
+
+  const handleGenerateDraft = async () => {
+    try {
+      const generated = await generateDecisionGraphWithLlm(activeKnowledge.description, activeKnowledge);
+      setCurrentTemplate((previous) => ({
+        ...previous,
+        name: activeKnowledge.campaignName || generated.name,
+        tagline: activeKnowledge.description || generated.tagline,
+        knowledge: activeKnowledge,
+        initialNodes: generated.nodes,
+        initialEdges: generated.edges,
+      }));
+      setActiveNodes(generated.nodes);
+      setActiveEdges(generated.edges);
+      setStage('canvas');
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : 'AI could not generate a draft. Please try again.');
+    }
   };
 
   return (
@@ -111,10 +127,21 @@ export default function App() {
               initialEdges: activeEdges,
               knowledge: activeKnowledge,
             }}
-            onBackToTemplates={() => setStage('templates')}
+            onBackToTemplates={() => setStage('workspace')}
             onProceedToCall={handleProceedToCall}
           />
         </ReactFlowProvider>
+      )}
+
+      {stage === 'workspace' && (
+        <CampaignWorkspace
+          template={currentTemplate}
+          knowledge={activeKnowledge}
+          onUpdateKnowledge={setActiveKnowledge}
+          onBack={() => setStage('templates')}
+          onOpenStudio={() => setStage('canvas')}
+          onGenerateDraft={handleGenerateDraft}
+        />
       )}
 
       {stage === 'voice_call' && (
@@ -122,7 +149,7 @@ export default function App() {
           nodes={activeNodes}
           edges={activeEdges}
           knowledge={activeKnowledge}
-          onBackToCanvas={() => setStage('canvas')}
+          onBackToCanvas={() => setStage('workspace')}
         />
       )}
     </div>

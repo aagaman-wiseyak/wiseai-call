@@ -159,33 +159,6 @@ export const NodeInspector: React.FC<NodeInspectorProps> = ({
                 }
               />
             </div>
-
-            <div className="form-group checkbox-row">
-              <label>
-                <input
-                  type="checkbox"
-                  checked={(data as any).enableAmd || false}
-                  onChange={(e) =>
-                    onUpdateNodeData(selectedNode.id, { enableAmd: e.target.checked } as any)
-                  }
-                />
-                Enable AMD (Answering Machine Detection)
-              </label>
-            </div>
-
-            {(data as any).enableAmd && (
-              <div className="form-group">
-                <label className="form-label">Voicemail Script</label>
-                <textarea
-                  className="form-textarea"
-                  rows={3}
-                  value={(data as any).voicemailScript || ''}
-                  onChange={(e) =>
-                    onUpdateNodeData(selectedNode.id, { voicemailScript: e.target.value } as any)
-                  }
-                />
-              </div>
-            )}
           </>
         )}
 

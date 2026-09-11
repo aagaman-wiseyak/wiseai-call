@@ -32,8 +32,8 @@ export interface NodeDataCommon {
 
 export interface GreetingNodeData extends NodeDataCommon {
   openingScript: string;
-  voiceStyle: string;
-  enableAmd: boolean; // Answering machine detection
+  voiceStyle?: string;
+  enableAmd?: boolean;
   voicemailScript?: string;
   gatekeeperHandling?: string;
 }
@@ -113,6 +113,34 @@ export interface GlobalObjection {
   resumeFlow: boolean;
 }
 
+export type KnowledgeContentType =
+  | 'product_offer'
+  | 'policy'
+  | 'process'
+  | 'service'
+  | 'troubleshooting'
+  | 'compliance'
+  | 'company_information'
+  | 'escalation'
+  | 'reference'
+  | 'other';
+
+export type KnowledgeItemStatus = 'draft' | 'approved' | 'archived';
+
+/** A campaign-owned, auditable source of facts the agent may use. */
+export interface KnowledgeItem {
+  id: string;
+  title: string;
+  contentType: KnowledgeContentType;
+  tags: string[];
+  content: string;
+  source: string;
+  version: string;
+  effectiveFrom?: string;
+  effectiveUntil?: string;
+  status: KnowledgeItemStatus;
+}
+
 export interface CampaignKnowledge {
   campaignId: string;
   campaignName: string;
@@ -134,6 +162,7 @@ export interface CampaignKnowledge {
   };
   faqs: FAQItem[];
   globalObjections: GlobalObjection[];
+  knowledgeItems: KnowledgeItem[];
   complianceNotice: string;
 }
 

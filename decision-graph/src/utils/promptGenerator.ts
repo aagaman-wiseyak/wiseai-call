@@ -70,6 +70,7 @@ export function generateCampaignFromPrompt(userPrompt: string): GeneratedCampaig
       },
     },
     complianceNotice: 'This call is recorded for quality and training purposes.',
+    knowledgeItems: [],
     globalObjections: [
       {
         id: 'obj-ai-check',

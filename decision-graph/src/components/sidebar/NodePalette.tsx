@@ -29,10 +29,10 @@ interface PaletteItem {
 const PALETTE_ITEMS: PaletteItem[] = [
   {
     type: 'greeting',
-    title: 'Greeting & AMD',
-    description: 'Voicemail detection & human answer trigger',
+    title: 'Initial Greeting',
+    description: 'Opening speech script & intro',
     icon: <PhoneCall size={16} />,
-    color: '#3b82f6',
+    color: '#0284C7',
   },
   {
     type: 'question',

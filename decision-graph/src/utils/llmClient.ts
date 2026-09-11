@@ -63,17 +63,22 @@ export async function callLlm(messages: ChatMessage[]): Promise<string> {
 /**
  * Use LLM to analyze user prompt and synthesize a complete outbound decision tree
  */
-export async function generateDecisionGraphWithLlm(userPrompt: string): Promise<GeneratedCampaign> {
+export async function generateDecisionGraphWithLlm(
+  userPrompt: string,
+  campaignContext?: CampaignKnowledge,
+): Promise<GeneratedCampaign> {
   const systemPrompt = `You are an expert Voice Campaign Architect.
 Given a user's description of an outbound AI phone call campaign, generate a comprehensive structured outbound call decision tree.
 
+Use the supplied campaign context as the source of truth. Do not invent pricing, offers, policies, compliance requirements, or company facts. If the approved knowledge is empty, keep factual claims out of the draft and create a safe follow-up path for detailed questions.
+
 The outbound call must NOT be a linear survey. It must include:
-1. Greeting & AMD (Answering Machine Detection): opening statement and voicemail drop.
+1. Greeting: opening statement and call purpose.
 2. Discovery / Qualifying Question with variable to extract.
 3. Scenario Router with multiple branches (Positive interest, Budget/cost objection, Timing/busy callback, Not interested / DNC).
 4. Campaign Knowledge / Objection Rebuttal node with return-to-previous-flow logic.
 5. Action node (Calendar booking, dispatch SMS, or live transfer).
-6. Hangup nodes for success, voicemail, callback, and polite exit.
+6. Hangup nodes for success, callback, and polite exit.
 
 Output ONLY valid JSON inside a \`\`\`json markdown codeblock with this exact structure:
 {
@@ -92,7 +97,6 @@ Output ONLY valid JSON inside a \`\`\`json markdown codeblock with this exact st
     "phone": "+1 (555) 000-0000"
   },
   "greetingScript": "string with {{lead_name}} and {{company}}",
-  "voicemailScript": "string",
   "questionScript": "string",
   "variableToExtract": "string (e.g. appointment_time, budget)",
   "scenarioBranches": [
@@ -112,7 +116,22 @@ Output ONLY valid JSON inside a \`\`\`json markdown codeblock with this exact st
 
   const messages: ChatMessage[] = [
     { role: 'system', content: systemPrompt },
-    { role: 'user', content: `Generate an outbound AI decision tree for this campaign: "${userPrompt}"` },
+    {
+      role: 'user',
+      content: `Generate an outbound AI decision tree for this campaign: "${userPrompt}"\n\nCAMPAIGN CONTEXT:\n${JSON.stringify({
+        campaignName: campaignContext?.campaignName,
+        description: campaignContext?.description,
+        agentPersona: campaignContext?.agentPersona && {
+          name: campaignContext.agentPersona.name,
+          role: campaignContext.agentPersona.role,
+          company: campaignContext.agentPersona.company,
+          tone: campaignContext.agentPersona.tone,
+        },
+        approvedKnowledge: (campaignContext?.knowledgeItems || [])
+          .filter((item) => item.status === 'approved')
+          .map(({ title, content, contentType, tags }) => ({ title, content, contentType, tags })),
+      }, null, 2)}`,
+    },
   ];
 
   const llmResponse = await callLlm(messages);
@@ -176,6 +195,7 @@ Output ONLY valid JSON inside a \`\`\`json markdown codeblock with this exact st
         keywords: ['what', 'why', 'regarding', 'who'],
       },
     ],
+    knowledgeItems: [],
   };
 
   const rawBranches = parsed.scenarioBranches || [
@@ -201,23 +221,9 @@ Output ONLY valid JSON inside a \`\`\`json markdown codeblock with this exact st
       position: { x: 300, y: 50 },
       data: {
         type: 'greeting',
-        label: `${company} Greeting & AMD`,
+        label: `${company} Greeting`,
         openingScript: parsed.greetingScript || `Hello {{lead_name}}, this is ${agentName} with ${company}.`,
         voiceStyle: 'Professional',
-        enableAmd: true,
-        voicemailScript: parsed.voicemailScript || `Hello {{lead_name}}, calling from ${company}. Please return our call.`,
-      },
-    },
-    {
-      id: 'node-vm-hangup',
-      type: 'hangup',
-      position: { x: 50, y: 280 },
-      data: {
-        type: 'hangup',
-        label: 'Voicemail Left & Exit',
-        closingScript: parsed.voicemailScript || 'Voicemail dropped and recorded.',
-        disposition: 'voicemail_left',
-        sendSummarySms: true,
       },
     },
     {
@@ -323,13 +329,6 @@ Output ONLY valid JSON inside a \`\`\`json markdown codeblock with this exact st
   ];
 
   const rawEdges: CustomFlowEdge[] = [
-    {
-      id: 'edge-g-vm',
-      source: 'node-greeting',
-      sourceHandle: 'voicemail',
-      target: 'node-vm-hangup',
-      data: { label: 'Voicemail' },
-    },
     {
       id: 'edge-g-human',
       source: 'node-greeting',

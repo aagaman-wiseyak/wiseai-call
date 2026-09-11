@@ -27,6 +27,10 @@ class Settings(BaseSettings):
     TTS_DEFAULT_VOICE: str = "Prakash_0"
     TTS_MODEL: str = "omnivoice_tts"
     
+    # Durable campaign and call-session store. Configure this to a managed
+    # database-backed repository in deployment; SQLite is the local default.
+    CAMPAIGN_STORE_PATH: str = os.path.join(os.path.dirname(__file__), "data", "campaigns.sqlite3")
+    
     # CORS
     CORS_ORIGINS: list[str] = [
         "http://localhost:5173",
