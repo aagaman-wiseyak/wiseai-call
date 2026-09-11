@@ -6,6 +6,8 @@ import {
   OutboundNodeType,
   CampaignKnowledge,
   BranchCondition,
+  KnowledgeItem,
+  KnowledgeContentType,
 } from '../../types/flow';
 import {
   Sliders,
@@ -148,6 +150,36 @@ export const RightSetupPanel: React.FC<RightSetupPanelProps> = ({
     setRefinePrompt('');
   };
 
+  const addKnowledgeItem = () => {
+    const item: KnowledgeItem = {
+      id: `knowledge-${Date.now()}`,
+      title: 'Untitled campaign information',
+      contentType: 'other',
+      tags: [],
+      content: '',
+      source: '',
+      version: '1.0',
+      status: 'draft',
+    };
+    onUpdateKnowledge({ ...knowledge, knowledgeItems: [...(knowledge.knowledgeItems || []), item] });
+  };
+
+  const updateKnowledgeItem = (id: string, fields: Partial<KnowledgeItem>) => {
+    onUpdateKnowledge({
+      ...knowledge,
+      knowledgeItems: (knowledge.knowledgeItems || []).map((item) =>
+        item.id === id ? { ...item, ...fields } : item
+      ),
+    });
+  };
+
+  const removeKnowledgeItem = (id: string) => {
+    onUpdateKnowledge({
+      ...knowledge,
+      knowledgeItems: (knowledge.knowledgeItems || []).filter((item) => item.id !== id),
+    });
+  };
+
   return (
     <aside className="right-setup-panel">
       {/* Tab Navigation */}
@@ -166,13 +198,6 @@ export const RightSetupPanel: React.FC<RightSetupPanelProps> = ({
           <Sliders size={14} />
           <span>{selectedNode ? selectedNode.data.label : 'Node Inspector'}</span>
         </button>
-        <button
-          className={`panel-tab ${activeTab === 'knowledge' ? 'active' : ''}`}
-          onClick={() => setActiveTab('knowledge')}
-        >
-          <BookOpen size={14} />
-          <span>Knowledge</span>
-        </button>
       </div>
 
       {/* Main Content Area */}
@@ -181,9 +206,9 @@ export const RightSetupPanel: React.FC<RightSetupPanelProps> = ({
         {activeTab === 'flow' && (
           <div className="flow-steps-view">
             <div className="view-intro">
-              <span className="view-title">Decision Tree Sequence</span>
+              <span className="view-title">Conversation steps</span>
               <p className="view-desc">
-                Configure greetings, questions, and scenarios here. All updates sync live to the canvas.
+                Select a step to adjust what the agent says and where customer responses should go.
               </p>
             </div>
 
@@ -669,9 +694,9 @@ export const RightSetupPanel: React.FC<RightSetupPanelProps> = ({
         {activeTab === 'knowledge' && (
           <div className="knowledge-view">
             <div className="view-intro">
-              <span className="view-title">Campaign Persona & Context</span>
+              <span className="view-title">Campaign Knowledge Handbook</span>
               <p className="view-desc">
-                Setup agent identity, dynamic lead variables, and global objection responses.
+                Add the approved facts your agent can use across this entire campaign. Call steps decide what to ask; they do not own prices, policies, or answers.
               </p>
             </div>
 
@@ -705,39 +730,76 @@ export const RightSetupPanel: React.FC<RightSetupPanelProps> = ({
               />
             </div>
 
-            <div className="clean-field-group">
-              <label className="clean-label">Target Lead Name (&#123;&#123;lead_name&#125;&#125;)</label>
-              <input
-                type="text"
-                className="clean-input"
-                value={knowledge.leadProfile.name}
-                onChange={(e) =>
-                  onUpdateKnowledge({
-                    ...knowledge,
-                    leadProfile: { ...knowledge.leadProfile, name: e.target.value },
-                  })
-                }
-              />
-            </div>
-
-            <div className="clean-field-group">
-              <label className="clean-label">Target Phone Number</label>
-              <input
-                type="text"
-                className="clean-input"
-                value={knowledge.leadProfile.phone}
-                onChange={(e) =>
-                  onUpdateKnowledge({
-                    ...knowledge,
-                    leadProfile: { ...knowledge.leadProfile, phone: e.target.value },
-                  })
-                }
-              />
-            </div>
-
             <div className="knowledge-summary-box">
-              <span>{knowledge.globalObjections.length} Global Objections Loaded</span>
-              <span>{knowledge.faqs.length} Campaign FAQs Loaded</span>
+              <span>{(knowledge.knowledgeItems || []).filter((item) => item.status === 'approved').length} Approved items</span>
+              <span>{(knowledge.knowledgeItems || []).filter((item) => item.status === 'draft').length} Draft items</span>
+            </div>
+
+            <div className="branches-section">
+              <div className="section-head-inline">
+                <div>
+                  <label className="clean-label">Approved campaign content</label>
+                  <p className="clean-subtext">Only approved items are available to the live AI agent.</p>
+                </div>
+                <button type="button" className="btn-clean-primary btn-sm" onClick={addKnowledgeItem}>
+                  <Plus size={12} /> Add information
+                </button>
+              </div>
+
+              {(knowledge.knowledgeItems || []).length === 0 ? (
+                <div className="empty-branches-notice">
+                  <span>Add plans, prices, promotions, fees, policies, or service details. Include a source and version before approval.</span>
+                </div>
+              ) : (
+                (knowledge.knowledgeItems || []).map((item) => (
+                  <div className="clean-branch-editor" key={item.id}>
+                    <div className="branch-top-row">
+                      <input
+                        className="clean-input clean-input-sm"
+                        value={item.title}
+                        placeholder="e.g. 300 Mbps annual renewal offer"
+                        onChange={(e) => updateKnowledgeItem(item.id, { title: e.target.value })}
+                      />
+                      <button type="button" className="btn-icon-danger-sm" title="Remove information" onClick={() => removeKnowledgeItem(item.id)}>
+                        <Trash2 size={13} />
+                      </button>
+                    </div>
+                    <div className="form-grid-2 mt-1">
+                      <select className="clean-select clean-select-sm" value={item.contentType} onChange={(e) => updateKnowledgeItem(item.id, { contentType: e.target.value as KnowledgeContentType })}>
+                        <option value="product_offer">Product / offer</option>
+                        <option value="policy">Policy</option>
+                        <option value="process">Process / procedure</option>
+                        <option value="service">Service / support</option>
+                        <option value="troubleshooting">Troubleshooting</option>
+                        <option value="compliance">Compliance / privacy</option>
+                        <option value="company_information">Company information</option>
+                        <option value="escalation">Escalation / handoff</option>
+                        <option value="reference">Reference</option>
+                        <option value="other">Other</option>
+                      </select>
+                      <select className="clean-select clean-select-sm" value={item.status} onChange={(e) => updateKnowledgeItem(item.id, { status: e.target.value as KnowledgeItem['status'] })}>
+                        <option value="draft">Draft — not used on calls</option>
+                        <option value="approved">Approved — agent may use</option>
+                        <option value="archived">Archived — not used</option>
+                      </select>
+                    </div>
+                    <textarea
+                      className="clean-textarea mt-1"
+                      rows={4}
+                      value={item.content}
+                      placeholder="Approved customer-facing facts. Be specific about plan, price, eligibility, conditions, and limitations."
+                      onChange={(e) => updateKnowledgeItem(item.id, { content: e.target.value })}
+                    />
+                    <input className="clean-input clean-input-sm mt-1" value={item.tags.join(', ')} placeholder="Tags, e.g. renewal, billing, privacy" onChange={(e) => updateKnowledgeItem(item.id, { tags: e.target.value.split(',').map((tag) => tag.trim()).filter(Boolean) })} />
+                    <input className="clean-input clean-input-sm mt-1" value={item.source} placeholder="Source, e.g. Vianet Renewal Offer Sheet — Sep 2026" onChange={(e) => updateKnowledgeItem(item.id, { source: e.target.value })} />
+                    <div className="form-grid-2 mt-1">
+                      <input className="clean-input clean-input-sm" value={item.version} placeholder="Version" onChange={(e) => updateKnowledgeItem(item.id, { version: e.target.value })} />
+                      <input className="clean-input clean-input-sm" type="date" value={item.effectiveFrom || ''} aria-label="Effective from" onChange={(e) => updateKnowledgeItem(item.id, { effectiveFrom: e.target.value || undefined })} />
+                      <input className="clean-input clean-input-sm" type="date" value={item.effectiveUntil || ''} aria-label="Effective until" onChange={(e) => updateKnowledgeItem(item.id, { effectiveUntil: e.target.value || undefined })} />
+                    </div>
+                  </div>
+                ))
+              )}
             </div>
           </div>
         )}

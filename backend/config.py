@@ -23,6 +23,10 @@ class Settings(BaseSettings):
     TTS_API_URL: str = "https://dev-models.wiseai.wiseyak.com/tts/generate_from_text"
     TTS_TIMEOUT: float = 45.0
     TTS_DEFAULT_VOICE: str = "Prakash_0"
+
+    # Durable campaign and call-session store. Configure this to a managed
+    # database-backed repository in deployment; SQLite is the local default.
+    CAMPAIGN_STORE_PATH: str = os.path.join(os.path.dirname(__file__), "data", "campaigns.sqlite3")
     
     # CORS
     CORS_ORIGINS: list[str] = [

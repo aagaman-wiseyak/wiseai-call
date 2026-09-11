@@ -635,8 +635,8 @@ export const CallSimulator: React.FC<CallSimulatorProps> = ({
                     {msg.speaker === 'agent'
                       ? knowledge.agentPersona.name
                       : msg.speaker === 'lead'
-                      ? knowledge.leadProfile.name
-                      : 'SYSTEM'}
+                        ? knowledge.leadProfile.name
+                        : 'SYSTEM'}
                   </span>
                   <span className="msg-time">{msg.timestamp}</span>
                 </div>

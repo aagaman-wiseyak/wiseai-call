@@ -1,8 +1,6 @@
-import React, { useState } from 'react';
-import { ArrowRight, Plus, Sparkles } from 'lucide-react';
+import React from 'react';
+import { ArrowRight, Plus } from 'lucide-react';
 import { CAMPAIGN_TEMPLATES, CampaignTemplate } from '../../templates/campaignTemplates';
-import { generateCampaignFromPrompt } from '../../utils/promptGenerator';
-import { generateDecisionGraphWithLlm } from '../../utils/llmClient';
 import { WiseBrandLogo } from '../brand/WiseBrandLogo';
 
 interface TemplateHubProps {
@@ -14,42 +12,6 @@ export const TemplateHub: React.FC<TemplateHubProps> = ({
   onSelectCampaign,
   onStartBlank,
 }) => {
-  const [promptText, setPromptText] = useState('');
-  const [isGenerating, setIsGenerating] = useState(false);
-
-  const handlePromptSubmit = async (e?: React.FormEvent) => {
-    if (e) e.preventDefault();
-    if (!promptText.trim()) return;
-
-    setIsGenerating(true);
-    try {
-      const generated = await generateDecisionGraphWithLlm(promptText);
-      setIsGenerating(false);
-      onSelectCampaign({
-        id: generated.id,
-        name: generated.name,
-        tagline: generated.tagline,
-        category: generated.category,
-        knowledge: generated.knowledge,
-        initialNodes: generated.nodes,
-        initialEdges: generated.edges,
-      });
-    } catch (llmErr) {
-      console.warn('LLM generator encountered error, using local synthesizer fallback:', llmErr);
-      const generated = generateCampaignFromPrompt(promptText);
-      setIsGenerating(false);
-      onSelectCampaign({
-        id: generated.id,
-        name: generated.name,
-        tagline: generated.tagline,
-        category: generated.category,
-        knowledge: generated.knowledge,
-        initialNodes: generated.nodes,
-        initialEdges: generated.edges,
-      });
-    }
-  };
-
   return (
     <div className="template-hub-page">
       {/* Top Brand Header */}
@@ -71,35 +33,8 @@ export const TemplateHub: React.FC<TemplateHubProps> = ({
         <section className="hub-hero">
           <h2 className="hero-headline">Campaign Templates</h2>
           <p className="hero-subtext">
-            Generate a custom decision tree with AI or start from a pre-configured template.
+            Start with a proven template or a blank campaign. You will add campaign context before generating or editing a conversation.
           </p>
-
-          {/* AI Prompt Generator Box */}
-          <form className="prompt-generator-form" onSubmit={handlePromptSubmit}>
-            <div className="prompt-input-wrapper">
-              <input
-                type="text"
-                className="prompt-input"
-                placeholder="Describe your outbound campaign objective (e.g., Customer renewal check-in)..."
-                value={promptText}
-                onChange={(e) => setPromptText(e.target.value)}
-              />
-              <button
-                type="submit"
-                className="btn-prompt-generate"
-                disabled={!promptText.trim() || isGenerating}
-              >
-                {isGenerating ? (
-                  <span>Generating...</span>
-                ) : (
-                  <>
-                    <Sparkles size={14} />
-                    <span>Generate Flow</span>
-                  </>
-                )}
-              </button>
-            </div>
-          </form>
         </section>
 
         {/* Templates Grid Section */}

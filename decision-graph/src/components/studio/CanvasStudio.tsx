@@ -533,7 +533,7 @@ export const CanvasStudio: React.FC<CanvasStudioProps> = ({
       <header className="canvas-header">
         <div className="canvas-header-left">
           <button className="btn-clean-back" onClick={onBackToTemplates}>
-            <ArrowLeft size={14} /> Templates
+            <ArrowLeft size={14} /> Campaign setup
           </button>
           <div className="header-divider" />
           <WiseBrandLogo size="sm" showTagline={false} />
@@ -542,6 +542,11 @@ export const CanvasStudio: React.FC<CanvasStudioProps> = ({
             <h2 className="header-campaign-title">{template.name}</h2>
             <span className="header-campaign-badge">
               Decision Flow Studio
+            </span>
+            <span className="header-campaign-badge">
+              {campaignKnowledge.knowledgeItems.filter((item) => item.status === 'approved').length
+                ? `${campaignKnowledge.knowledgeItems.filter((item) => item.status === 'approved').length} knowledge items`
+                : 'No knowledge added'}
             </span>
           </div>
         </div>

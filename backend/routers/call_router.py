@@ -3,8 +3,7 @@ from fastapi import APIRouter, HTTPException, UploadFile, File, Form
 from pydantic import BaseModel, Field
 from typing import List, Dict, Any, Optional
 
-from services.intent_router import intent_router_service
-from services.knowledge_service import knowledge_service, DEFAULT_ISP_KNOWLEDGE
+from services.turn_orchestrator import turn_orchestrator
 from services.tts_service import tts_service
 from services.asr_service import asr_service
 
@@ -18,6 +17,9 @@ class ProcessTurnRequest(BaseModel):
     edges: List[Dict[str, Any]]
     campaign_knowledge: Optional[Dict[str, Any]] = None
     conversation_history: List[Dict[str, Any]] = Field(default_factory=list)
+    # This state is persisted by the call-session service in production. It is
+    # echoed for the current client while persistence is being introduced.
+    conversation_state: Dict[str, Any] = Field(default_factory=dict)
     variables: Dict[str, Any] = Field(default_factory=dict)
     synthesize_audio: bool = False
 
@@ -28,9 +30,11 @@ class ProcessTurnResponse(BaseModel):
     confidence: float
     knowledge_invoked: bool
     knowledge_topic: Optional[str] = None
+    knowledge_source_ids: List[str] = Field(default_factory=list)
     reasoning: str
     action_payload: Optional[Dict[str, Any]] = None
     updated_variables: Dict[str, Any] = Field(default_factory=dict)
+    conversation_state: Dict[str, Any] = Field(default_factory=dict)
     audio_base64: Optional[str] = None
 
 class TTSRequest(BaseModel):
@@ -42,77 +46,37 @@ class TTSRequest(BaseModel):
 @router.post("/process-turn", response_model=ProcessTurnResponse)
 async def process_turn(req: ProcessTurnRequest):
     """
-    Processes user response:
-    1. Checks if customer asks a campaign knowledge question (packages, Mbps tiers, discounts, routers).
-    2. If knowledge question: answers it accurately using campaign knowledge and stays on current node.
-    3. Runs LLM Intent Router: analyzes outgoing branches from current_node_id to determine next step (Q3 vs Q4, action, rebuttal, or hangup).
-    4. Optionally synthesizes voice audio using WiseAI TTS.
+    Interpret and execute one customer turn.
+
+    Compound answers such as “yes, but why?” hold the valid affirmative route,
+    answer only from campaign-approved knowledge, and resume the held route
+    only after the customer indicates that the question is resolved.
     """
     current_node = next((n for n in req.nodes if n.get("id") == req.current_node_id), None)
     if not current_node:
         raise HTTPException(status_code=404, detail=f"Node {req.current_node_id} not found in graph")
 
-    current_prompt = (
-        current_node.get("data", {}).get("speechPrompt")
-        or current_node.get("data", {}).get("openingScript")
-        or current_node.get("data", {}).get("label", "")
-    )
-
-    # 1. Check if user is asking a campaign knowledge question (packages, Mbps, discounts, etc.)
-    is_knowledge, answer_text, topic = await knowledge_service.check_and_answer_question(
-        user_text=req.user_text,
-        current_step_prompt=current_prompt,
-        campaign_knowledge=req.campaign_knowledge,
-    )
-
-    if is_knowledge and answer_text:
-        logger.info(f"Campaign knowledge query detected on topic '{topic}': {req.user_text}")
-        audio_b64 = None
-        if req.synthesize_audio:
-            tts_res = await tts_service.synthesize_speech(answer_text)
-            audio_b64 = tts_res.get("audio_base64")
-
-        return ProcessTurnResponse(
-            next_node_id=req.current_node_id,
-            ai_response_text=answer_text,
-            intent_matched=f"Campaign Knowledge: {topic}",
-            confidence=0.96,
-            knowledge_invoked=True,
-            knowledge_topic=topic,
-            reasoning=f"User inquired about {topic}. Answered directly from campaign catalog.",
-            audio_base64=audio_b64,
-            updated_variables=req.variables,
-        )
-
-    # 2. Extract outgoing branches departing from current_node_id
+    # Outgoing paths are the sole set of transitions the model may propose.
     outgoing = [e for e in req.edges if e.get("source") == req.current_node_id]
-
-    if not outgoing:
-        return ProcessTurnResponse(
-            next_node_id=None,
-            ai_response_text="Thank you so much for your time today. Have a wonderful day!",
-            intent_matched="terminal_step",
-            confidence=1.0,
-            knowledge_invoked=False,
-            reasoning="Current step has no further outgoing branches.",
-            updated_variables=req.variables,
-        )
-
-    # 3. Use LLM Intent Router to map response to next question/node
-    routing_result = await intent_router_service.route_intent(
+    routing_result = await turn_orchestrator.process(
         user_text=req.user_text,
         current_node=current_node,
         outgoing_branches=outgoing,
         all_nodes=req.nodes,
+        campaign_knowledge=req.campaign_knowledge,
+        conversation_state=req.conversation_state,
         conversation_history=req.conversation_history,
     )
 
-    next_id = routing_result["next_node_id"]
+    next_id = routing_result.get("next_node_id")
     next_node = next((n for n in req.nodes if n.get("id") == next_id), None)
 
     ai_speech = ""
     action_data = None
-    if next_node:
+    # Knowledge answers are already composed by the grounded orchestrator.
+    if routing_result.get("knowledge_invoked"):
+        ai_speech = routing_result.get("ai_response_text", "")
+    elif next_node:
         ntype = next_node.get("data", {}).get("type")
         if ntype == "question":
             ai_speech = next_node.get("data", {}).get("speechPrompt", "")
@@ -137,19 +101,51 @@ async def process_turn(req: ProcessTurnRequest):
     return ProcessTurnResponse(
         next_node_id=next_id,
         ai_response_text=ai_speech,
-        intent_matched=routing_result.get("intent", "routed"),
-        confidence=routing_result.get("confidence", 0.9),
-        knowledge_invoked=False,
+        intent_matched=routing_result.get("intent_matched", "routed"),
+        confidence=routing_result.get("confidence", 0.0),
+        knowledge_invoked=routing_result.get("knowledge_invoked", False),
+        knowledge_topic=routing_result.get("knowledge_topic"),
+        knowledge_source_ids=routing_result.get("knowledge_source_ids", []),
         reasoning=routing_result.get("reasoning", "Mapped by LLM intent router"),
         action_payload=action_data,
         audio_base64=audio_b64,
         updated_variables=req.variables,
+        conversation_state=routing_result.get("conversation_state", req.conversation_state),
     )
 
 @router.get("/campaign-knowledge/isp")
 async def get_isp_campaign_knowledge():
-    """Returns the rich ISP Renewal campaign knowledge catalog."""
-    return DEFAULT_ISP_KNOWLEDGE
+    """Deprecated: campaign knowledge must be supplied by the campaign store."""
+    raise HTTPException(status_code=410, detail="Campaign knowledge is campaign-scoped and no longer served as a global default.")
+
+@router.post("/tts")
+async def synthesize_speech(req: TTSRequest):
+    """
+    Synthesizes speech using WiseAI TTS:
+    POST /tts/generate_from_text
+    """
+    return await tts_service.synthesize_speech(
+        text=req.text,
+        voice_id=req.voice_id,
+        language=req.language,
+        speed=req.speed,
+    )
+
+@router.post("/asr")
+async def transcribe_speech(
+    file: UploadFile = File(...),
+    language: Optional[str] = Form(None),
+):
+    """
+    Transcribes audio using WiseAI ASR:
+    POST /asr/transcribe-from-stream
+    """
+    audio_bytes = await file.read()
+    return await asr_service.transcribe_audio(
+        audio_bytes=audio_bytes,
+        language=language,
+        filename=file.filename or "audio.wav",
+    )
 
 @router.post("/tts")
 async def synthesize_speech(req: TTSRequest):

@@ -41,6 +41,28 @@ export const CAMPAIGN_TEMPLATES: CampaignTemplate[] = [
         },
       },
       complianceNotice: 'This call is recorded for service quality and account verification.',
+      knowledgeItems: [
+        {
+          id: 'isp-plans-v1',
+          title: 'Renewal plans and included equipment',
+          contentType: 'product_offer',
+          tags: ['renewal', 'internet', 'speed', 'router'],
+          content: 'Fiber 100 Mbps is $29.99 per month with a 10% six-month loyalty discount. Ultra 300 Mbps is $49.99 per month and Gigabit 1000 Mbps is $79.99 per month; both include a complimentary Wi-Fi 6 router upgrade. Annual renewal discounts are 20% on 300 Mbps and 25% on 1 Gbps.',
+          source: 'Apex Fiber renewal offer sheet',
+          version: '2026.1',
+          status: 'approved',
+        },
+        {
+          id: 'isp-renewal-policy-v1',
+          title: 'Renewal and equipment policy',
+          contentType: 'policy',
+          tags: ['renewal', 'eligibility', 'delivery', 'callback'],
+          content: 'Renewal offers are available to eligible existing subscribers. Router delivery takes up to two business days after confirmation. Customers may request a self-service renewal link or a later callback.',
+          source: 'Apex Fiber renewal policy',
+          version: '2026.1',
+          status: 'approved',
+        },
+      ],
       globalObjections: [
         {
           id: 'obj-ai-check',
@@ -292,6 +314,7 @@ export const CAMPAIGN_TEMPLATES: CampaignTemplate[] = [
         },
       },
       complianceNotice: 'This call is recorded for quality assurance and training purposes.',
+      knowledgeItems: [],
       globalObjections: [
         {
           id: 'obj-ai-check',
@@ -575,6 +598,7 @@ export const CAMPAIGN_TEMPLATES: CampaignTemplate[] = [
         },
       },
       complianceNotice: 'This call is an automated health outreach from Metro General Hospital. If you are experiencing a life-threatening emergency, please hang up and call 911 immediately.',
+      knowledgeItems: [],
       globalObjections: [
         {
           id: 'obj-emergency',
@@ -776,6 +800,7 @@ export const CAMPAIGN_TEMPLATES: CampaignTemplate[] = [
         },
       },
       complianceNotice: 'Calls are recorded for quality purposes. To opt-out at any point, simply say stop.',
+      knowledgeItems: [],
       globalObjections: [
         {
           id: 'obj-cost-solar',

@@ -2469,3 +2469,23 @@ body {
 .speaking-wave-dots span:nth-child(2) { height: 14px; animation-delay: 0.2s; }
 .speaking-wave-dots span:nth-child(3) { height: 9px; animation-delay: 0.3s; }
 .speaking-wave-dots span:nth-child(4) { height: 12px; animation-delay: 0.4s; }
+
+/* Campaign workspace: business setup before advanced flow editing. */
+.workspace-page { min-height: 100vh; background: #f8fafc; color: #18181b; }
+.workspace-header { min-height: 112px; padding: 22px clamp(24px, 5vw, 76px); display: flex; align-items: center; gap: 28px; background: #fff; border-bottom: 1px solid #e4e4e7; }
+.workspace-title { flex: 1; min-width: 0; }
+.workspace-eyebrow, .workspace-section-label { display: block; color: #71717a; font-size: 11px; font-weight: 700; letter-spacing: .08em; }
+.workspace-title h1 { margin: 4px 0; font-size: 22px; line-height: 1.15; }
+.workspace-title p { margin: 0; color: #71717a; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.workspace-layout { max-width: 1180px; margin: 0 auto; padding: 42px 32px; display: grid; grid-template-columns: 245px minmax(0, 1fr); gap: 54px; }
+.workspace-nav { display: flex; flex-direction: column; gap: 4px; }
+.workspace-nav-item { display: flex; align-items: center; gap: 10px; border: 0; background: transparent; padding: 11px 12px; border-radius: 8px; color: #52525b; font-size: 14px; text-align: left; cursor: pointer; }
+.workspace-nav-item.active { background: #ede9fe; color: #5b21b6; font-weight: 650; }
+.workspace-status { margin-left: auto; font-size: 11px; color: #71717a; }.workspace-status.ready { color: #15803d; }
+.workspace-content { max-width: 760px; min-width: 0; }.workspace-content h2 { margin: 7px 0; font-size: 26px; letter-spacing: -.02em; }.workspace-lead { margin: 0 0 26px; color: #52525b; font-size: 15px; line-height: 1.6; }
+.workspace-actions { display: flex; gap: 10px; margin-top: 24px; }.workspace-note { margin: 12px 0 0; color: #71717a; font-size: 12px; line-height: 1.5; }
+.workspace-fields { display: grid; gap: 17px; }.workspace-fields label { display: grid; gap: 7px; color: #3f3f46; font-size: 13px; font-weight: 600; }.workspace-fields input, .workspace-fields textarea, .workspace-knowledge-card input, .workspace-knowledge-card textarea, .workspace-knowledge-card select { width: 100%; box-sizing: border-box; border: 1px solid #d4d4d8; border-radius: 7px; padding: 10px 11px; background: #fff; color: #18181b; font: inherit; font-size: 14px; }.workspace-fields textarea, .workspace-knowledge-card textarea { resize: vertical; }
+.workspace-section-head { display: flex; justify-content: space-between; gap: 20px; align-items: flex-start; }.workspace-section-head .workspace-lead { margin-bottom: 14px; }
+.workspace-empty { padding: 42px 30px; border: 1px dashed #c4b5fd; border-radius: 12px; text-align: center; background: #fff; color: #52525b; }.workspace-empty svg { color: #7c3aed; }.workspace-empty h3 { color: #27272a; margin: 12px 0 6px; }.workspace-empty p { max-width: 500px; margin: 0 auto 18px; line-height: 1.55; }
+.workspace-knowledge-list { display: grid; gap: 14px; }.workspace-knowledge-card { padding: 16px; border: 1px solid #e4e4e7; background: #fff; border-radius: 10px; }.workspace-card-top { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }.workspace-card-top input { font-weight: 650; }.workspace-inline-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; margin: 9px 0; }.workspace-knowledge-card textarea { margin-top: 2px; }
+@media (max-width: 760px) { .workspace-header { padding: 18px 20px; gap: 14px; flex-wrap: wrap; }.workspace-header .btn-clean-primary { margin-left: auto; }.workspace-layout { grid-template-columns: 1fr; padding: 26px 20px; gap: 24px; }.workspace-nav { flex-direction: row; overflow-x: auto; }.workspace-nav-item { white-space: nowrap; }.workspace-content h2 { font-size: 23px; }.workspace-section-head { display: block; }.workspace-section-head button { margin-bottom: 18px; }.workspace-inline-fields { grid-template-columns: 1fr; }.workspace-actions { flex-direction: column; align-items: flex-start; } }

@@ -66,6 +66,9 @@ export const VoiceCallPage: React.FC<VoiceCallPageProps> = ({
   const [streamingText, setStreamingText] = useState('');
   const [inputText, setInputText] = useState('');
   const [isRouting, setIsRouting] = useState(false);
+  // Server-owned conversation state: holds a valid transition while the
+  // customer’s campaign question is resolved (e.g. “yes, but why?”).
+  const [conversationState, setConversationState] = useState<Record<string, unknown>>({});
   const [backendStatus, setBackendStatus] = useState<'checking' | 'online' | 'offline'>('checking');
 
   useEffect(() => {
@@ -320,6 +323,7 @@ export const VoiceCallPage: React.FC<VoiceCallPageProps> = ({
   const startCall = () => {
     stopSpeech();
     telephoneAudio.startRingback();
+    setConversationState({});
 
     setSimState({
       status: 'ringing',
@@ -423,6 +427,7 @@ export const VoiceCallPage: React.FC<VoiceCallPageProps> = ({
           edges: edges,
           campaign_knowledge: knowledge,
           conversation_history: newTranscript,
+          conversation_state: conversationState,
           variables: simState.variables,
         }),
       });
@@ -430,6 +435,7 @@ export const VoiceCallPage: React.FC<VoiceCallPageProps> = ({
       if (response.ok) {
         const result = await response.json();
         setIsRouting(false);
+        setConversationState(result.conversation_state || {});
 
         // 1. CAMPAIGN KNOWLEDGE LOOKUP
         if (result.knowledge_invoked) {
@@ -647,15 +653,14 @@ export const VoiceCallPage: React.FC<VoiceCallPageProps> = ({
           <div className="telephony-card">
             {/* Status Visualizer Circle per Section 2.7 of Brand Spec */}
             <div
-              className={`avatar-status-circle ${
-                simState.status === 'connected'
+              className={`avatar-status-circle ${simState.status === 'connected'
                   ? isUserSpeaking
                     ? 'speaking user-speaking'
                     : simState.isAiSpeaking
-                    ? 'speaking'
-                    : 'connected'
+                      ? 'speaking'
+                      : 'connected'
                   : simState.status
-              }`}
+                }`}
             >
               {simState.isAiSpeaking ? (
                 <div className="voice-wave-bars" title="Agent speaking">
@@ -689,10 +694,10 @@ export const VoiceCallPage: React.FC<VoiceCallPageProps> = ({
                 (simState.isAiSpeaking
                   ? 'Agent Speaking...'
                   : isUserSpeaking
-                  ? 'Contact Speaking...'
-                  : isTranscribing
-                  ? 'Transcribing Voice...'
-                  : 'Listening to Contact...')}
+                    ? 'Contact Speaking...'
+                    : isTranscribing
+                      ? 'Transcribing Voice...'
+                      : 'Listening to Contact...')}
               {simState.status === 'ended' && 'Call Concluded'}
             </div>
 
@@ -704,9 +709,8 @@ export const VoiceCallPage: React.FC<VoiceCallPageProps> = ({
             {/* Hands-Free VAD Mode Toggle Pill */}
             {simState.status === 'connected' && (
               <button
-                className={`mic-mode-pill ${
-                  micEnabled ? (isUserSpeaking ? 'speaking' : 'active') : 'muted'
-                }`}
+                className={`mic-mode-pill ${micEnabled ? (isUserSpeaking ? 'speaking' : 'active') : 'muted'
+                  }`}
                 onClick={toggleMic}
                 title="Click to toggle Hands-Free Microphone"
               >
@@ -797,8 +801,8 @@ export const VoiceCallPage: React.FC<VoiceCallPageProps> = ({
                           {msg.speaker === 'agent'
                             ? knowledge.agentPersona.name
                             : msg.speaker === 'lead'
-                            ? knowledge.leadProfile.name
-                            : 'System Event'}
+                              ? knowledge.leadProfile.name
+                              : 'System Event'}
                         </span>
                         <span className="msg-time">{msg.timestamp}</span>
                       </div>
