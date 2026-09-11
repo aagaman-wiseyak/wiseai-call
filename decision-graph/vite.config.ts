@@ -8,10 +8,9 @@ export default defineConfig({
     host: '127.0.0.1',
     port: 5173,
     proxy: {
-      '/api/llm': {
-        target: 'https://dev-models.wiseai.wiseyak.com',
+      '/api': {
+        target: 'http://127.0.0.1:8000',
         changeOrigin: true,
-        rewrite: (path) => path.replace(/^\/api\/llm/, '/v1/chat/completions'),
       },
     },
   },

@@ -237,7 +237,20 @@ export const VoiceCallPage: React.FC<VoiceCallPageProps> = ({
     }));
   };
 
-  const handleCallerResponse = (userText: string) => {
+  const [isRouting, setIsRouting] = useState(false);
+  const [backendStatus, setBackendStatus] = useState<'checking' | 'online' | 'offline'>('checking');
+
+  useEffect(() => {
+    fetch('/api/health')
+      .then((res) => res.json())
+      .then((d) => {
+        if (d.status === 'online') setBackendStatus('online');
+        else setBackendStatus('offline');
+      })
+      .catch(() => setBackendStatus('offline'));
+  }, []);
+
+  const handleCallerResponse = async (userText: string) => {
     if (!userText.trim() || simState.status !== 'connected') return;
 
     const userMsg: SimulationMessage = {
@@ -249,16 +262,86 @@ export const VoiceCallPage: React.FC<VoiceCallPageProps> = ({
 
     const newTranscript = [...simState.transcript, userMsg];
     setInputText('');
+    setSimState((prev) => ({ ...prev, transcript: newTranscript }));
+    setIsRouting(true);
 
+    const currentNode = nodes.find((n) => n.id === simState.activeNodeId);
+
+    try {
+      // POST TO FASTAPI PYTHON BACKEND
+      const response = await fetch('/api/call/process-turn', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          user_text: userText,
+          current_node_id: simState.activeNodeId,
+          nodes: nodes,
+          edges: edges,
+          campaign_knowledge: knowledge,
+          conversation_history: newTranscript,
+          variables: simState.variables,
+        }),
+      });
+
+      if (response.ok) {
+        const result = await response.json();
+        setIsRouting(false);
+
+        // 1. CAMPAIGN KNOWLEDGE LOOKUP (Packages, Mbps, Discounts, Router FAQs)
+        if (result.knowledge_invoked) {
+          const knowledgeMsg: SimulationMessage = {
+            id: `ai-knowledge-${Date.now()}`,
+            speaker: 'agent',
+            text: result.ai_response_text,
+            timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+            intentMatched: `💡 Campaign Knowledge: ${result.knowledge_topic || 'Inquiry'}`,
+          };
+
+          setSimState((prev) => ({
+            ...prev,
+            transcript: [...newTranscript, knowledgeMsg],
+            isAiSpeaking: true,
+          }));
+
+          if (simState.audioTtsEnabled) {
+            speakText(result.ai_response_text, knowledge.agentPersona.speakingRate || 1.0, 1.0, () => {
+              setSimState((prev) => ({ ...prev, isAiSpeaking: false }));
+            });
+          } else {
+            setTimeout(() => setSimState((prev) => ({ ...prev, isAiSpeaking: false })), 1000);
+          }
+          return;
+        }
+
+        // 2. LLM INTENT ROUTING TO NEXT NODE (Q3 vs Q4 vs Action vs Rebuttal)
+        if (result.next_node_id) {
+          const nextNode = nodes.find((n) => n.id === result.next_node_id);
+          if (nextNode) {
+            const edgeBetween = edges.find(
+              (e) => e.source === simState.activeNodeId && e.target === result.next_node_id
+            );
+            if (edgeBetween) {
+              setSimState((prev) => ({ ...prev, activeEdgeId: edgeBetween.id }));
+            }
+
+            executeNode(nextNode, result.updated_variables || simState.variables);
+            return;
+          }
+        }
+      }
+    } catch (apiError) {
+      console.warn('FastAPI backend routing error, engaging client fallback:', apiError);
+    }
+
+    setIsRouting(false);
+
+    // CLIENT FALLBACK TRAVERSAL
     const lower = userText.toLowerCase();
 
-    // 1. GLOBAL OBJECTIONS
+    // Global objections
     const matchedObj = knowledge.globalObjections.find((obj) =>
-      lower.includes(obj.trigger.toLowerCase().replace(/[?.,!]/g, '')) ||
-      (obj.trigger.toLowerCase().includes('ai') && (lower.includes('robot') || lower.includes('ai'))) ||
-      (obj.trigger.toLowerCase().includes('busy') && lower.includes('busy'))
+      lower.includes(obj.trigger.toLowerCase().replace(/[?.,!]/g, ''))
     );
-
     if (matchedObj) {
       const rebuttalMsg: SimulationMessage = {
         id: `ai-rebuttal-${Date.now()}`,
@@ -267,13 +350,11 @@ export const VoiceCallPage: React.FC<VoiceCallPageProps> = ({
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
         intentMatched: 'Global Objection Intercepted',
       };
-
       setSimState((prev) => ({
         ...prev,
         transcript: [...newTranscript, rebuttalMsg],
         isAiSpeaking: true,
       }));
-
       if (simState.audioTtsEnabled) {
         speakText(matchedObj.response, knowledge.agentPersona.speakingRate || 1.0, 1.0, () => {
           setSimState((prev) => ({ ...prev, isAiSpeaking: false }));
@@ -284,144 +365,11 @@ export const VoiceCallPage: React.FC<VoiceCallPageProps> = ({
       return;
     }
 
-    // 2. FAQS
-    const matchedFaq = knowledge.faqs.find((faq) =>
-      faq.keywords.some((kw) => lower.includes(kw.toLowerCase()))
-    );
-
-    if (matchedFaq) {
-      const faqMsg: SimulationMessage = {
-        id: `ai-faq-${Date.now()}`,
-        speaker: 'agent',
-        text: matchedFaq.answer,
-        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        intentMatched: `FAQ: ${matchedFaq.question}`,
-      };
-
-      setSimState((prev) => ({
-        ...prev,
-        transcript: [...newTranscript, faqMsg],
-        isAiSpeaking: true,
-      }));
-
-      if (simState.audioTtsEnabled) {
-        speakText(matchedFaq.answer, knowledge.agentPersona.speakingRate || 1.0, 1.0, () => {
-          setSimState((prev) => ({ ...prev, isAiSpeaking: false }));
-        });
-      } else {
-        setTimeout(() => setSimState((prev) => ({ ...prev, isAiSpeaking: false })), 1000);
-      }
-      return;
-    }
-
-    // 3. GRAPH TRAVERSAL
-    const currentNode = nodes.find((n) => n.id === simState.activeNodeId);
-    if (!currentNode) return;
-
-    // Greeting AMD
-    if (currentNode.data.type === 'greeting') {
-      const isVoicemail =
-        lower.includes('voicemail') ||
-        lower.includes('leave a message') ||
-        lower.includes('tone') ||
-        lower.includes('beep');
-
-      const targetHandle = isVoicemail ? 'voicemail' : 'human';
-      const edge = edges.find(
-        (e) => e.source === currentNode.id && (e.sourceHandle === targetHandle || !e.sourceHandle)
-      );
-
-      if (edge) {
-        const nextNode = nodes.find((n) => n.id === edge.target);
-        if (nextNode) {
-          setSimState((prev) => ({ ...prev, transcript: newTranscript }));
-          setTimeout(() => executeNode(nextNode, simState.variables), 400);
-          return;
-        }
-      }
-    }
-
-    // Scenario Router
-    const outgoingEdges = edges.filter((e) => e.source === currentNode.id);
-    const branchEdge = outgoingEdges.find((e) => {
-      const target = nodes.find((n) => n.id === e.target);
-      return target?.data.type === 'scenarioBranch';
-    });
-
-    let nodeToEvaluate = currentNode;
-    if (branchEdge) {
-      const branchNode = nodes.find((n) => n.id === branchEdge.target);
-      if (branchNode) nodeToEvaluate = branchNode;
-    }
-
-    if (nodeToEvaluate.data.type === 'scenarioBranch') {
-      const branchData = nodeToEvaluate.data as any;
-      const branches = branchData.branches || [];
-
-      let matchedBranch = null;
-
-      if (lower.includes('budget') || lower.includes('cost') || lower.includes('expensive') || lower.includes('price')) {
-        matchedBranch = branches.find((b: any) => b.intentKey?.includes('cost') || b.intentKey?.includes('price') || b.label?.toLowerCase().includes('cost'));
-      } else if (lower.includes('reschedule') || lower.includes('different day') || lower.includes('later') || lower.includes('busy') || lower.includes('meeting')) {
-        matchedBranch = branches.find((b: any) => b.intentKey?.includes('reschedule') || b.intentKey?.includes('busy') || b.label?.toLowerCase().includes('reschedule'));
-      } else if (lower.includes('cancel') || lower.includes('not interested') || lower.includes('remove') || lower.includes('stop')) {
-        matchedBranch = branches.find((b: any) => b.intentKey?.includes('cancel') || b.intentKey?.includes('not') || b.intentKey?.includes('dnc'));
-      } else {
-        matchedBranch = branches[0];
-      }
-
-      if (matchedBranch) {
-        const edge = edges.find(
-          (e) =>
-            e.source === nodeToEvaluate.id &&
-            (e.sourceHandle === matchedBranch.targetHandle || e.sourceHandle === matchedBranch.id)
-        ) || edges.find((e) => e.source === nodeToEvaluate.id);
-
-        if (edge) {
-          const nextNode = nodes.find((n) => n.id === edge.target);
-          if (nextNode) {
-            setSimState((prev) => ({
-              ...prev,
-              transcript: newTranscript,
-              variables: {
-                ...prev.variables,
-                customer_intent: matchedBranch.label,
-              },
-            }));
-            setTimeout(() => executeNode(nextNode, simState.variables), 400);
-            return;
-          }
-        }
-      }
-    }
-
-    // Rebuttal Loop
-    if (currentNode.data.type === 'knowledge') {
-      const rebuttalAccepted =
-        lower.includes('ok') ||
-        lower.includes('sure') ||
-        lower.includes('yes') ||
-        lower.includes('thursday') ||
-        lower.includes('tuesday') ||
-        lower.includes('sounds good');
-
-      if (rebuttalAccepted) {
-        const edge = edges.find((e) => e.source === currentNode.id);
-        if (edge) {
-          const nextNode = nodes.find((n) => n.id === edge.target);
-          if (nextNode) {
-            setSimState((prev) => ({ ...prev, transcript: newTranscript }));
-            setTimeout(() => executeNode(nextNode, simState.variables), 400);
-            return;
-          }
-        }
-      }
-    }
-
+    // Outgoing edges fallback
+    const outgoingEdges = edges.filter((e) => e.source === simState.activeNodeId);
     if (outgoingEdges.length > 0) {
       const nextNode = nodes.find((n) => n.id === outgoingEdges[0].target);
       if (nextNode) {
-        setSimState((prev) => ({ ...prev, transcript: newTranscript }));
         setTimeout(() => executeNode(nextNode, simState.variables), 400);
         return;
       }
@@ -448,25 +396,37 @@ export const VoiceCallPage: React.FC<VoiceCallPageProps> = ({
     if (currentNode.data.type === 'greeting') {
       return [
         `Yes, this is ${knowledge.leadProfile.name}`,
-        'Who is calling?',
+        'What is this call about?',
         'Leave a message (Voicemail)',
         'I am in a meeting right now',
       ];
     }
     if (currentNode.data.type === 'question') {
+      // Contextual chips for ISP renewal and general decision questions
+      if (currentNode.id === 'node-q2-usage') {
+        return [
+          'What packages and Mbps speeds do you offer?',
+          'We stream 4K video and work from home',
+          'Just basic browsing for 1-2 people',
+          'What discount do I get for annual renewal?',
+          'Do I get a new router?',
+          'I am not interested in renewing',
+        ];
+      }
       return [
-        'Yes, that time works perfectly',
-        'I need to reschedule for next week',
+        'Yes, that sounds great',
+        'What speeds are available?',
+        'Is there any discount?',
         'How much will this cost?',
-        'Are you an AI robot?',
-        'Cancel appointment, not interested',
+        'Do I get a new Wi-Fi router?',
+        'Cancel, not interested',
       ];
     }
     if (currentNode.data.type === 'knowledge') {
       return [
-        'That makes sense, keep my slot',
-        'Still need to reschedule',
-        'Where are you located?',
+        'That makes sense, lock in the discount',
+        'Can I get free Wi-Fi 6 router?',
+        'Still too expensive for me',
       ];
     }
     return ['Sounds good', 'Thank you', 'Goodbye'];
@@ -537,6 +497,10 @@ export const VoiceCallPage: React.FC<VoiceCallPageProps> = ({
         </div>
 
         <div className="voice-header-right">
+          <div className={`backend-indicator ${backendStatus}`} title="FastAPI Python Backend Status">
+            <span className="indicator-dot" />
+            <span>FastAPI Backend: {backendStatus}</span>
+          </div>
           <button
             className={`btn-icon-clean ${simState.audioTtsEnabled ? 'active' : ''}`}
             onClick={() => {
@@ -663,6 +627,14 @@ export const VoiceCallPage: React.FC<VoiceCallPageProps> = ({
                   </div>
                 </div>
               ))
+            )}
+            {isRouting && (
+              <div className="clean-msg-row agent thinking-row">
+                <div className="clean-msg-bubble thinking-bubble">
+                  <Sparkles size={12} className="thinking-icon spin" />
+                  <span className="thinking-text">FastAPI LLM Intent Router evaluating customer response & campaign knowledge...</span>
+                </div>
+              </div>
             )}
             <div ref={transcriptEndRef} />
           </div>
