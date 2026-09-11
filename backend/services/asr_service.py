@@ -10,13 +10,13 @@ def normalize_asr_language(lang: Optional[str]) -> str:
     Normalizes language to 'nep' or 'eng' per WiseAI ASR specification.
     """
     if not lang:
-        return "nep"
+        return "eng"
     clean = lang.lower().strip()
     if clean in ["nep", "nepali", "ne"]:
         return "nep"
     if clean in ["eng", "english", "en"]:
         return "eng"
-    return "nep"
+    return "eng"
 
 class ASRService:
     """
@@ -44,13 +44,27 @@ class ASRService:
         target_lang = normalize_asr_language(language or self.default_language)
         logger.info(f"Transcribing audio via WiseAI ASR ({self.api_url}): {len(audio_bytes)} bytes, lang={target_lang}")
 
+        # Detect audio mime-type from filename extension
+        fname = filename or "audio.wav"
+        fname_lower = fname.lower()
+        if fname_lower.endswith(".mp4"):
+            content_type = "video/mp4"
+        elif fname_lower.endswith(".webm"):
+            content_type = "audio/webm"
+        elif fname_lower.endswith(".mp3"):
+            content_type = "audio/mpeg"
+        elif fname_lower.endswith(".ogg"):
+            content_type = "audio/ogg"
+        else:
+            content_type = "audio/wav"
+
         # Multipart files and form fields matching curl reference
         files = {
-            "audio": (filename or "audio.wav", audio_bytes, "audio/wav")
+            "audio": (fname, audio_bytes, content_type)
         }
         data = {
             "bucket_name": "string",
-            "filename": filename or "string",
+            "filename": fname,
             "user_id": "string",
             "organization": "string",
             "scope": "string",
@@ -73,7 +87,12 @@ class ASRService:
                 async with httpx.AsyncClient(timeout=self.timeout) as client:
                     response = await client.post(endpoint, data=data, files=files, headers=headers)
                     response.raise_for_status()
-                    res_data = response.json()
+
+                    # Handle both JSON and raw text response formats safely
+                    try:
+                        res_data = response.json()
+                    except Exception:
+                        res_data = response.text
 
                     # Extract transcription text
                     transcribed_text = ""
@@ -81,18 +100,30 @@ class ASRService:
                         transcribed_text = (
                             res_data.get("text")
                             or res_data.get("transcription")
+                            or res_data.get("transcript")
+                            or res_data.get("data")
+                            or res_data.get("output")
                             or res_data.get("result")
                             or ""
-                        ).strip()
+                        )
+                        if isinstance(transcribed_text, dict):
+                            transcribed_text = (
+                                transcribed_text.get("text")
+                                or transcribed_text.get("transcription")
+                                or transcribed_text.get("transcript")
+                                or ""
+                            )
+                        transcribed_text = str(transcribed_text).strip()
                     elif isinstance(res_data, str):
                         transcribed_text = res_data.strip()
 
+                    logger.info(f"WiseAI ASR transcription successful ({endpoint}): '{transcribed_text}'")
                     return {
                         "text": transcribed_text,
                         "language": target_lang,
                         "status": "success",
                         "endpoint": endpoint,
-                        "details": res_data,
+                        "details": res_data if isinstance(res_data, dict) else {"raw": res_data},
                     }
             except Exception as e:
                 last_error = e
