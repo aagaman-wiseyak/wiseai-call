@@ -1,0 +1,21 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: wiseai-campaign-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: wiseai_campaigns
+      POSTGRES_USER: wiseai
+      POSTGRES_PASSWORD: wiseai_local_dev
+    ports:
+      - "127.0.0.1:5433:5432"
+    volumes:
+      - wiseai_campaign_postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U wiseai -d wiseai_campaigns"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  wiseai_campaign_postgres:

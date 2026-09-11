@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import { ReactFlowProvider } from '@xyflow/react';
 import {
   CustomFlowNode,
@@ -23,6 +23,23 @@ export default function App() {
   const [activeNodes, setActiveNodes] = useState<CustomFlowNode[]>(CAMPAIGN_TEMPLATES[0].initialNodes);
   const [activeEdges, setActiveEdges] = useState<CustomFlowEdge[]>(CAMPAIGN_TEMPLATES[0].initialEdges);
   const [activeKnowledge, setActiveKnowledge] = useState<CampaignKnowledge>(CAMPAIGN_TEMPLATES[0].knowledge);
+  const [knowledgeSaveStatus, setKnowledgeSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
+  const knowledgeSaveTimer = useRef<number | null>(null);
+
+  const handleUpdateKnowledge = (knowledge: CampaignKnowledge) => {
+    setActiveKnowledge(knowledge);
+    setKnowledgeSaveStatus('saving');
+    if (knowledgeSaveTimer.current) window.clearTimeout(knowledgeSaveTimer.current);
+    knowledgeSaveTimer.current = window.setTimeout(async () => {
+      try {
+        await saveCampaign(knowledge, activeNodes, activeEdges);
+        setKnowledgeSaveStatus('saved');
+      } catch (error) {
+        console.error('Campaign handbook save failed:', error);
+        setKnowledgeSaveStatus('error');
+      }
+    }, 600);
+  };
 
   // 1. SELECT TEMPLATE (from Hub)
   const handleSelectTemplate = (template: CampaignTemplate) => {
@@ -137,10 +154,11 @@ export default function App() {
         <CampaignWorkspace
           template={currentTemplate}
           knowledge={activeKnowledge}
-          onUpdateKnowledge={setActiveKnowledge}
+          onUpdateKnowledge={handleUpdateKnowledge}
           onBack={() => setStage('templates')}
           onOpenStudio={() => setStage('canvas')}
           onGenerateDraft={handleGenerateDraft}
+          saveStatus={knowledgeSaveStatus}
         />
       )}
 

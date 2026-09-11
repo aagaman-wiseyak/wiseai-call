@@ -12,6 +12,7 @@ interface CampaignWorkspaceProps {
   onBack: () => void;
   onOpenStudio: () => void;
   onGenerateDraft: () => Promise<void>;
+  saveStatus: 'idle' | 'saving' | 'saved' | 'error';
 }
 
 const tabs: Array<{ id: WorkspaceTab; label: string; icon: React.ElementType }> = [
@@ -26,6 +27,7 @@ export const CampaignWorkspace: React.FC<CampaignWorkspaceProps> = ({
   onBack,
   onOpenStudio,
   onGenerateDraft,
+  saveStatus,
 }) => {
   const [activeTab, setActiveTab] = useState<WorkspaceTab>('overview');
   const [isGenerating, setIsGenerating] = useState(false);
@@ -74,6 +76,7 @@ export const CampaignWorkspace: React.FC<CampaignWorkspaceProps> = ({
           <h1>{knowledge.campaignName || template.name}</h1>
           <p>{knowledge.description || template.tagline}</p>
         </div>
+        {saveStatus !== 'idle' && <span className={`workspace-save-status ${saveStatus}`}>{saveStatus === 'saving' ? 'Saving…' : saveStatus === 'saved' ? 'Saved' : 'Save failed'}</span>}
         <button type="button" className="btn-clean-primary" onClick={onOpenStudio}>Open Decision Studio <ArrowRight size={14} /></button>
       </header>
 
@@ -114,7 +117,7 @@ export const CampaignWorkspace: React.FC<CampaignWorkspaceProps> = ({
             {knowledge.knowledgeItems.length === 0 ? <div className="workspace-empty"><BookOpen size={24} /><h3>No campaign knowledge yet</h3><p>Your flow still works without it. If a customer asks a factual question, the agent will safely arrange follow-up instead of guessing.</p><button type="button" className="btn-clean-outline" onClick={addKnowledge}>Add approved information</button></div> : <div className="workspace-knowledge-list">
               {knowledge.knowledgeItems.map((item) => <article className="workspace-knowledge-card" key={item.id}>
                 <div className="workspace-card-top"><input value={item.title} aria-label="Information title" onChange={(e) => updateKnowledge(item.id, { title: e.target.value })} /><button type="button" className="btn-icon-danger-sm" onClick={() => removeKnowledge(item.id)} aria-label="Remove information"><Trash2 size={14} /></button></div>
-                <div className="workspace-inline-fields"><select value={item.contentType} onChange={(e) => updateKnowledge(item.id, { contentType: e.target.value as KnowledgeContentType })}><option value="product_offer">Product / offer</option><option value="policy">Policy</option><option value="process">Process / procedure</option><option value="service">Service / support</option><option value="troubleshooting">Troubleshooting</option><option value="compliance">Compliance / privacy</option><option value="company_information">Company information</option><option value="escalation">Escalation / handoff</option><option value="reference">Reference</option><option value="other">Other</option></select><select value={item.status} onChange={(e) => updateKnowledge(item.id, { status: e.target.value as KnowledgeItem['status'] })}><option value="draft">Draft</option><option value="approved">Approved for calls</option><option value="archived">Archived</option></select></div>
+                <div className="workspace-inline-fields"><select value={item.contentType} onChange={(e) => updateKnowledge(item.id, { contentType: e.target.value as KnowledgeContentType })}><option value="product_offer">Product / offer</option><option value="policy">Policy</option><option value="process">Process / procedure</option><option value="service">Service / support</option><option value="troubleshooting">Troubleshooting</option><option value="compliance">Compliance / privacy</option><option value="company_information">Company information</option><option value="escalation">Escalation / handoff</option><option value="reference">Reference</option><option value="other">Other</option></select><select value={item.status} onChange={(e) => updateKnowledge(item.id, { status: e.target.value as KnowledgeItem['status'] })}><option value="draft">Draft — not used on calls</option><option value="approved">Approved — agent may use</option><option value="archived">Archived — not used</option></select></div>
                 <textarea rows={4} value={item.content} placeholder="Approved customer-facing facts and conditions" onChange={(e) => updateKnowledge(item.id, { content: e.target.value })} />
                 <div className="workspace-inline-fields"><input value={item.tags.join(', ')} placeholder="Tags, e.g. renewal, billing, privacy" onChange={(e) => updateKnowledge(item.id, { tags: e.target.value.split(',').map((tag) => tag.trim()).filter(Boolean) })} /><input value={item.source} placeholder="Source document" onChange={(e) => updateKnowledge(item.id, { source: e.target.value })} /><input value={item.version} placeholder="Version" onChange={(e) => updateKnowledge(item.id, { version: e.target.value })} /><input type="date" value={item.effectiveFrom || ''} aria-label="Effective from" onChange={(e) => updateKnowledge(item.id, { effectiveFrom: e.target.value || undefined })} /><input type="date" value={item.effectiveUntil || ''} aria-label="Effective until" onChange={(e) => updateKnowledge(item.id, { effectiveUntil: e.target.value || undefined })} /></div>
               </article>)}

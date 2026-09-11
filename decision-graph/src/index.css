@@ -2941,6 +2941,7 @@ body {
 .workspace-eyebrow, .workspace-section-label { display: block; color: #71717a; font-size: 11px; font-weight: 700; letter-spacing: .08em; }
 .workspace-title h1 { margin: 4px 0; font-size: 22px; line-height: 1.15; }
 .workspace-title p { margin: 0; color: #71717a; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.workspace-save-status { padding: 5px 9px; border-radius: var(--radius-full); font-size: 11px; font-weight: 700; white-space: nowrap; }.workspace-save-status.saving { color: #a16207; background: #fef3c7; }.workspace-save-status.saved { color: #15803d; background: #dcfce7; }.workspace-save-status.error { color: #b91c1c; background: #fee2e2; }
 .workspace-layout { max-width: 1180px; margin: 0 auto; padding: 42px 32px; display: grid; grid-template-columns: 245px minmax(0, 1fr); gap: 54px; }
 .workspace-nav { display: flex; flex-direction: column; gap: 4px; }
 .workspace-nav-item { display: flex; align-items: center; gap: 10px; border: 0; background: transparent; padding: 11px 12px; border-radius: 8px; color: #52525b; font-size: 14px; text-align: left; cursor: pointer; }

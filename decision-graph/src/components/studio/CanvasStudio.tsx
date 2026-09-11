@@ -114,6 +114,14 @@ export const CanvasStudio: React.FC<CanvasStudioProps> = ({
     () => nodes.find((n) => n.id === selectedNodeId) || null,
     [nodes, selectedNodeId]
   );
+  const knowledgeStatus = useMemo(() => {
+    const items = campaignKnowledge.knowledgeItems || [];
+    const approved = items.filter((item) => item.status === 'approved').length;
+    const drafts = items.filter((item) => item.status === 'draft').length;
+    if (items.length === 0) return 'No knowledge added';
+    if (approved === 0) return `${drafts} draft item${drafts === 1 ? '' : 's'}`;
+    return `${approved} approved item${approved === 1 ? '' : 's'}${drafts ? ` · ${drafts} draft` : ''}`;
+  }, [campaignKnowledge.knowledgeItems]);
 
   // Connect edges
   const onConnect = useCallback(
@@ -545,9 +553,7 @@ export const CanvasStudio: React.FC<CanvasStudioProps> = ({
               Decision Flow Studio
             </span>
             <span className="header-campaign-badge">
-              {campaignKnowledge.knowledgeItems.filter((item) => item.status === 'approved').length
-                ? `${campaignKnowledge.knowledgeItems.filter((item) => item.status === 'approved').length} knowledge items`
-                : 'No knowledge added'}
+              {knowledgeStatus}
             </span>
           </div>
         </div>

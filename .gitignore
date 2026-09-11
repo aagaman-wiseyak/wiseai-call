@@ -29,7 +29,6 @@ MANIFEST
 # Virtual Environments
 venv/
 .venv/
-env/
 ENV/
 env.bak/
 venv.bak/
@@ -57,10 +56,8 @@ dist-ssr/
 *.local
 
 # --- Environment & Secret Variables ---
-.env
 .env.local
 .env.*.local
-*.env
 !.env.example
 
 # --- Logs & Runtime Temporary Files ---
