@@ -21,6 +21,7 @@ import {
 } from '../../types/flow';
 import { telephoneAudio, speakText, stopSpeech } from '../../utils/speech';
 import { VADAudioEngine } from '../../utils/vadRecorder';
+import { WiseBrandLogo } from '../brand/WiseBrandLogo';
 
 interface VoiceCallPageProps {
   nodes: CustomFlowNode[];
@@ -64,6 +65,17 @@ export const VoiceCallPage: React.FC<VoiceCallPageProps> = ({
   const [showInputDrawer, setShowInputDrawer] = useState(false);
   const [inputText, setInputText] = useState('');
   const [isRouting, setIsRouting] = useState(false);
+  const [backendStatus, setBackendStatus] = useState<'checking' | 'online' | 'offline'>('checking');
+
+  useEffect(() => {
+    fetch('/api/health')
+      .then((res) => res.json())
+      .then((d) => {
+        if (d.status === 'online') setBackendStatus('online');
+        else setBackendStatus('offline');
+      })
+      .catch(() => setBackendStatus('offline'));
+  }, []);
 
   const vadEngineRef = useRef<VADAudioEngine | null>(null);
   const timerRef = useRef<any>(null);
@@ -481,22 +493,87 @@ export const VoiceCallPage: React.FC<VoiceCallPageProps> = ({
     });
   };
 
-  // Concise quick chips for testing without speaking
+  // Dynamic contextual quick chips for testing without speaking
   const quickSuggestions = useMemo(() => {
     const currentNode = nodes.find((n) => n.id === simState.activeNodeId);
-    if (!currentNode) return ['Yes, please', 'Tell me more', 'Not right now'];
+    if (!currentNode) {
+      return ['Yes, speaking', 'Could you repeat that?', 'I am busy right now'];
+    }
 
+    const chips: string[] = [];
+
+    // 1. Dynamic chips from outgoing decision branches departing from currentNode
+    const outgoing = edges.filter((e) => e.source === currentNode.id);
+    outgoing.forEach((edge) => {
+      const edgeLabel = edge.data?.label || '';
+      if (edgeLabel) {
+        // Clean up common branch prefixes like "If ... -> ..." or "If Agrees -> Confirm"
+        const cleanChip = edgeLabel
+          .replace(/^If\s+/i, '')
+          .replace(/\s*->.*$/, '')
+          .trim();
+        if (cleanChip && !chips.includes(cleanChip)) {
+          chips.push(cleanChip);
+        }
+      }
+    });
+
+    // 2. Dynamic chips from scenario branch options if applicable
+    if (currentNode.data.type === 'scenarioBranch') {
+      const branches = (currentNode.data as any).branches || [];
+      branches.forEach((b: any) => {
+        if (b.label && !chips.includes(b.label)) {
+          chips.push(b.label);
+        }
+      });
+    }
+
+    // 3. Dynamic inquiries from Campaign FAQs
+    if (knowledge.faqs && knowledge.faqs.length > 0) {
+      knowledge.faqs.slice(0, 2).forEach((faq) => {
+        if (!chips.includes(faq.question)) {
+          chips.push(faq.question);
+        }
+      });
+    }
+
+    // 4. Dynamic triggers from Campaign Global Objections
+    if (knowledge.globalObjections && knowledge.globalObjections.length > 0) {
+      knowledge.globalObjections.slice(0, 2).forEach((obj) => {
+        if (!chips.includes(obj.trigger)) {
+          chips.push(obj.trigger);
+        }
+      });
+    }
+
+    // 5. Node-type specific natural conversational fallbacks
     if (currentNode.data.type === 'greeting') {
-      return ['Yes, speaking', 'What is this about?', 'Leave a message'];
+      if (!chips.some((c) => c.toLowerCase().includes('yes'))) {
+        chips.unshift(`Yes, this is ${knowledge.leadProfile.name}`);
+      }
+      if (!chips.some((c) => c.toLowerCase().includes('busy'))) {
+        chips.push('I am in a meeting, can you call back later?');
+      }
+    } else if (currentNode.data.type === 'question') {
+      if (!chips.some((c) => c.toLowerCase().includes('yes') || c.toLowerCase().includes('sounds'))) {
+        chips.unshift('Yes, sounds good');
+      }
+      if (!chips.some((c) => c.toLowerCase().includes('not') || c.toLowerCase().includes('cancel'))) {
+        chips.push('Not interested right now');
+      }
+    } else if (currentNode.data.type === 'knowledge') {
+      chips.unshift("Understood, let's move forward");
+      chips.push('I still have some concerns');
+    } else if (currentNode.data.type === 'action') {
+      chips.unshift('Confirm and proceed');
+      chips.push('Need to reschedule');
+    } else if (currentNode.data.type === 'hangup') {
+      chips.unshift('Thank you, goodbye');
     }
-    if (currentNode.data.type === 'question') {
-      return ['What speeds are available?', 'Is there a discount?', 'Sounds good', 'Not interested'];
-    }
-    if (currentNode.data.type === 'knowledge') {
-      return ['Lock in the discount', 'Does it include a router?', 'Still too expensive'];
-    }
-    return ['Sounds good', 'Thank you', 'Goodbye'];
-  }, [simState.activeNodeId, nodes]);
+
+    // Return max 6 chips to keep layout balanced
+    return chips.slice(0, 6);
+  }, [simState.activeNodeId, nodes, edges, knowledge]);
 
   // Generate dynamic kinetic wave bars based on real-time VAD voice activity or AI speech
   const waveBars = useMemo(() => {
@@ -517,10 +594,13 @@ export const VoiceCallPage: React.FC<VoiceCallPageProps> = ({
     <div className="minimal-call-canvas">
       {/* Sleek Top Navigation Bar */}
       <header className="minimal-call-header">
-        <button className="minimal-btn-back" onClick={onBackToCanvas} title="Return to Studio">
-          <ArrowLeft size={16} />
-          <span>Studio</span>
-        </button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+          <button className="minimal-btn-back" onClick={onBackToCanvas} title="Return to Studio">
+            <ArrowLeft size={16} />
+            <span>Studio</span>
+          </button>
+          <WiseBrandLogo size="sm" showTagline={false} textColor="#f8fafc" />
+        </div>
 
         <div className="minimal-header-center">
           <span className="callee-name-title">{knowledge.leadProfile.name}</span>
@@ -540,7 +620,11 @@ export const VoiceCallPage: React.FC<VoiceCallPageProps> = ({
           </div>
         </div>
 
-        <div className="minimal-header-actions">
+        <div className="minimal-header-actions" style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+          <div className={`backend-indicator ${backendStatus}`} title="FastAPI Python Backend Status">
+            <span className="indicator-dot" />
+            <span>FastAPI: {backendStatus}</span>
+          </div>
           <button
             className={`minimal-icon-btn ${simState.audioTtsEnabled ? 'active' : ''}`}
             onClick={() => {

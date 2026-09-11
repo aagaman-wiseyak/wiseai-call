@@ -16,6 +16,11 @@ import {
   BookOpen,
   GitFork,
   ArrowRight,
+  Phone,
+  HelpCircle,
+  ShieldAlert,
+  Zap,
+  PhoneOff,
 } from 'lucide-react';
 
 interface RightSetupPanelProps {
@@ -34,6 +39,49 @@ interface RightSetupPanelProps {
   onUpdateKnowledge: (updated: CampaignKnowledge) => void;
   onPromptRefine: (prompt: string) => void;
 }
+
+const renderTypePill = (type: OutboundNodeType) => {
+  switch (type) {
+    case 'greeting':
+      return (
+        <span className="step-type-pill greeting">
+          <Phone size={10} /> Greeting
+        </span>
+      );
+    case 'question':
+      return (
+        <span className="step-type-pill question">
+          <HelpCircle size={10} /> Question
+        </span>
+      );
+    case 'scenarioBranch':
+      return (
+        <span className="step-type-pill scenarioBranch">
+          <GitFork size={10} /> Branch
+        </span>
+      );
+    case 'knowledge':
+      return (
+        <span className="step-type-pill knowledge">
+          <ShieldAlert size={10} /> Rebuttal
+        </span>
+      );
+    case 'action':
+      return (
+        <span className="step-type-pill action">
+          <Zap size={10} /> Action
+        </span>
+      );
+    case 'hangup':
+      return (
+        <span className="step-type-pill hangup">
+          <PhoneOff size={10} /> Hangup
+        </span>
+      );
+    default:
+      return <span className="step-type-pill">{type}</span>;
+  }
+};
 
 export const RightSetupPanel: React.FC<RightSetupPanelProps> = ({
   nodes,
@@ -155,7 +203,7 @@ export const RightSetupPanel: React.FC<RightSetupPanelProps> = ({
                   >
                     <div className="step-card-header">
                       <span className="step-num">Step {index + 1}</span>
-                      <span className="step-type-pill">{n.data.type}</span>
+                      {renderTypePill(n.data.type)}
                     </div>
 
                     <h4 className="step-title">{n.data.label}</h4>
