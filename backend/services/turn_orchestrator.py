@@ -115,18 +115,26 @@ class TurnOrchestrator:
             )
 
         system_prompt = (
-            f"You are an outbound-call turn interpreter and flow decision engine. Return strict JSON only.\n{lang_instruction}"
-            "TASK:\n"
-            "Analyze what the customer said in response to CURRENT_STEP and classify into ONE of three actions:\n"
-            "1. 'transition': The customer answered the question or expressed an intent matching an allowed route. Propose selected_route_id from ALLOWED_ROUTES.\n"
-            "2. 'knowledge': The customer asked a question or raised a concern answered by APPROVED_KNOWLEDGE. "
-            "Use only APPROVED_KNOWLEDGE. Never make up facts. Formulate a concise spoken 'answer' addressing their question AND naturally re-anchoring them to answer the CURRENT_STEP question.\n"
-            "3. 'repeat': The customer asked to repeat ('what did you say?', 'repeat please', 'sorry?'), gave an ambiguous or unrecognized reply, or was unclear. "
-            "Formulate a polite, natural rephrased repetition of the CURRENT_STEP question in 'answer'.\n\n"
+            f"You are an intelligent outbound-call turn interpreter and flow decision engine. Return strict JSON only.\n{lang_instruction}"
+            "CORE PRINCIPLES (NO HARDCODED INTENT RESTRICTIONS):\n"
+            "Analyze what the customer said in conversational context, extract their genuine intent into 'extracted_intent' (freeform description), and decide the appropriate action:\n\n"
+            "1. 'transition': Customer answered the question, made a choice, confirmed, or declined matching an ALLOWED_ROUTE.\n"
+            "   - Propose 'selected_route_id' from ALLOWED_ROUTES.\n"
+            "   - If the caller states they are NOT the intended contact (e.g. brother, receptionist, wrong number), "
+            "     select an allowed third-party or exit route, and provide a polite, natural apology in 'answer' without addressing them as the lead.\n\n"
+            "2. 'knowledge': Customer asks a question or raises a concern.\n"
+            "   - Answer using ONLY APPROVED_KNOWLEDGE. Never invent facts.\n"
+            "   - COMPOUND INPUTS: If the customer answers the step AND asks a question (e.g. 'Yes, but is there a contract?'), "
+            "     select the route in 'selected_route_id', set has_question=true, set knowledge_action='answer_and_hold', and provide the spoken answer.\n"
+            "   - If they ask a question before choosing a branch, set knowledge_action='answer_and_hold', selected_route_id=null, and provide the answer.\n\n"
+            "3. KNOWLEDGE THREAD RESOLUTION (Customer is satisfied after an answer):\n"
+            "   - If an OPEN_KNOWLEDGE_THREAD is active and the customer indicates satisfaction or understanding ('okay', 'sounds good', 'got it'):\n"
+            "     * If HELD_ROUTE_ID is set (they had agreed before asking): set knowledge_action='continue_held_route' to advance along the held route.\n"
+            "     * If HELD_ROUTE_ID is none (they asked before answering): set knowledge_action='ask_question_again', and in 'answer', politely re-ask the CURRENT_STEP question now that their inquiry is answered.\n\n"
+            "4. 'repeat' / CLARIFICATION (Customer is confused or says 'I don't understand'):\n"
+            "   - If customer says 'I don't understand', 'What do you mean?', or asks to repeat:\n"
+            "   - In 'answer', explain the question with GREATER CLARITY. You may draw on APPROVED_KNOWLEDGE to clarify concepts, plan speeds, or terms so the customer easily understands.\n\n"
             f"{var_instruction}"
-            "COMPOUND INPUTS:\n"
-            "If the customer both answers and asks a question in the same utterance, select the route in selected_route_id, set has_question=true, set knowledge_action='answer_and_hold', and provide the spoken answer.\n"
-            "If a knowledge thread is already open and the customer is now satisfied or says 'okay/continue', set knowledge_action='continue_held_route'.\n\n"
             f"CURRENT_STEP: {_script(current_node)}\n"
             f"ALLOWED_ROUTES: {json.dumps(routes)}\n"
             f"HELD_ROUTE_ID: {pending_node_id or 'none'}\n"
@@ -135,13 +143,13 @@ class TurnOrchestrator:
             "Return this JSON shape:\n"
             '{\n'
             '  "decision": "transition|repeat|knowledge",\n'
+            '  "extracted_intent": "freeform summary of customer intent",\n'
             '  "selected_route_id": "allowed id or null",\n'
             '  "has_question": true,\n'
-            '  "answer": "spoken answer, repetition, or empty string",\n'
+            '  "answer": "spoken response, clarification, or empty string",\n'
             '  "source_ids": ["approved item id"],\n'
-            '  "knowledge_action": "answer_and_hold|continue_held_route|no_knowledge",\n'
+            '  "knowledge_action": "answer_and_hold|continue_held_route|ask_question_again|no_knowledge",\n'
             '  "extracted_variable": {"name": "variable_name", "value": "extracted value"} or null,\n'
-            '  "topic": "short topic or null",\n'
             '  "confidence": 0.0,\n'
             '  "reasoning": "short explanation"\n'
             '}'
@@ -180,16 +188,28 @@ class TurnOrchestrator:
         has_question = bool(result.get("has_question"))
         answer = str(result.get("answer") or "").strip()
         decision = result.get("decision", "transition" if proposed_route else "repeat")
+        extracted_intent = str(result.get("extracted_intent") or result.get("caller_intent") or "").lower()
         extracted_var = result.get("extracted_variable")
         if not (isinstance(extracted_var, dict) and extracted_var.get("name") and extracted_var.get("value") is not None):
             extracted_var = None
+
+        # Check if caller stated they are not the intended contact
+        is_wrong_contact = (
+            "wrong" in extracted_intent
+            or "brother" in extracted_intent
+            or ("not " in extracted_intent and "lead" in extracted_intent)
+            or "third_party" in extracted_intent
+            or result.get("caller_intent") == "wrong_contact"
+        )
+        if is_wrong_contact:
+            state["lead_name_suppressed"] = True
 
         # 1. KNOWLEDGE QUESTION OR ANSWER_AND_HOLD
         if has_question or action == "answer_and_hold" or (decision == "knowledge" and (answer or source_ids)):
             held_route = proposed_route or pending_node_id
             state["pending_next_node_id"] = held_route
             state["knowledge_thread"] = {
-                "topic": result.get("topic") or "campaign question",
+                "topic": result.get("extracted_intent") or "campaign question",
                 "status": "awaiting_customer_confirmation",
                 "source_ids": source_ids,
             }
@@ -220,7 +240,7 @@ class TurnOrchestrator:
                 state.pop("repeat_counts", None)
             return {
                 "next_node_id": pending_node_id,
-                "ai_response_text": "",
+                "ai_response_text": answer,
                 "intent_matched": "knowledge_resolved",
                 "confidence": result.get("confidence", 0.0),
                 "knowledge_invoked": False,
@@ -230,7 +250,33 @@ class TurnOrchestrator:
                 "conversation_state": state,
             }
 
-        # 3. SUCCESSFUL TRANSITION TO NEXT NODE
+        # 3. CUSTOMER SATISFIED AFTER KNOWLEDGE BUT NO ROUTE WAS HELD: RE-ASK QUESTION
+        if action == "ask_question_again" or (action == "continue_held_route" and not pending_node_id):
+            state.pop("pending_next_node_id", None)
+            state.pop("knowledge_thread", None)
+            if "repeat_counts" in state and not state["repeat_counts"]:
+                state.pop("repeat_counts", None)
+
+            current_script = _script(current_node)
+            if not answer:
+                if language == "nep":
+                    answer = f"बुझ्नुभयो? अब कृपया भन्नुहोस्: {current_script}"
+                else:
+                    answer = f"Glad to help with that! Coming back to our question: {current_script}"
+
+            return {
+                "next_node_id": current_node_id,
+                "ai_response_text": answer,
+                "intent_matched": "reprompt_after_knowledge",
+                "confidence": result.get("confidence", 0.0),
+                "knowledge_invoked": False,
+                "knowledge_topic": None,
+                "extracted_variable": extracted_var,
+                "reasoning": "Customer satisfied with knowledge answer; re-asking current question.",
+                "conversation_state": state,
+            }
+
+        # 4. SUCCESSFUL TRANSITION TO NEXT NODE
         if proposed_route and decision != "repeat":
             repeat_counts = state.get("repeat_counts", {})
             if current_node_id and current_node_id in repeat_counts:
@@ -240,10 +286,17 @@ class TurnOrchestrator:
             else:
                 state.pop("repeat_counts", None)
 
+            if is_wrong_contact and not answer:
+                answer = (
+                    "माफ गर्नुहोस्, सम्पर्कमा केही भ्रम भयो। जानकारी दिनुभएकोमा धन्यवाद। शुभ दिन!"
+                    if language == "nep"
+                    else "Oh, apologies for the mix-up! Thank you for letting me know. Have a wonderful day!"
+                )
+
             return {
                 "next_node_id": proposed_route,
-                "ai_response_text": "",
-                "intent_matched": "routed",
+                "ai_response_text": answer,
+                "intent_matched": "wrong_contact" if is_wrong_contact else (result.get("extracted_intent") or "routed"),
                 "confidence": result.get("confidence", 0.0),
                 "knowledge_invoked": False,
                 "knowledge_topic": None,

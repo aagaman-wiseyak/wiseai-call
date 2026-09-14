@@ -186,3 +186,84 @@ def test_variable_extraction_returned(monkeypatch):
     assert result["extracted_variable"] == {"name": "pain_score", "value": 7}
 
 
+def test_wrong_contact_intent_handling(monkeypatch):
+    async def completion(*_args, **_kwargs):
+        return {
+            "decision": "transition",
+            "caller_intent": "wrong_contact",
+            "selected_route_id": "node-hangup-wrong-contact",
+            "has_question": False,
+            "answer": "Oh, apologies for the confusion! Thank you for letting me know. Have a wonderful day!",
+            "knowledge_action": "no_knowledge",
+            "extracted_variable": None,
+            "confidence": 0.99,
+            "reasoning": "Speaker explicitly stated he is the brother, not the lead.",
+        }
+
+    monkeypatch.setattr("services.turn_orchestrator.llm_service.structured_completion", completion)
+    result = asyncio.run(turn_orchestrator.process(
+        user_text="this isnt david miller. its his brother",
+        current_node={"id": "node-greeting", "data": {"openingScript": "Hi David Miller, this is Maya..."}},
+        outgoing_branches=[
+            {"id": "e1", "source": "node-greeting", "target": "node-q2", "data": {"label": "Customer Available / Yes"}},
+            {"id": "e2", "source": "node-greeting", "target": "node-hangup-wrong-contact", "data": {"label": "Wrong Person / Third Party / Not Available"}},
+        ],
+        all_nodes=[
+            {"id": "node-greeting", "data": {}},
+            {"id": "node-q2", "data": {}},
+            {"id": "node-hangup-wrong-contact", "data": {"type": "hangup"}},
+        ],
+        campaign_knowledge={"knowledgeItems": []},
+        conversation_state={},
+        conversation_history=[],
+    ))
+
+    assert result["next_node_id"] == "node-hangup-wrong-contact"
+    assert result["intent_matched"] == "wrong_contact"
+    assert result["conversation_state"]["lead_name_suppressed"] is True
+    assert "David Miller" not in result["ai_response_text"]
+    assert "apologies" in result["ai_response_text"].lower()
+
+
+def test_customer_satisfied_with_knowledge_reprompts_node_question(monkeypatch):
+    async def completion(*_args, **_kwargs):
+        return {
+            "decision": "transition",
+            "extracted_intent": "customer is satisfied with knowledge answer",
+            "selected_route_id": None,
+            "has_question": False,
+            "answer": "Glad to clarify that! So coming back to your usage: Are you mainly browsing or streaming 4K video?",
+            "knowledge_action": "ask_question_again",
+            "extracted_variable": None,
+            "confidence": 0.95,
+            "reasoning": "Customer said 'okay I see', resolving the side question.",
+        }
+
+    monkeypatch.setattr("services.turn_orchestrator.llm_service.structured_completion", completion)
+    result = asyncio.run(turn_orchestrator.process(
+        user_text="Okay, I see.",
+        current_node={"id": "node-q2", "data": {"speechPrompt": "Are you mainly browsing or streaming 4K video?"}},
+        outgoing_branches=[
+            {"id": "e1", "source": "node-q2", "target": "node-q3", "data": {"label": "Light"}},
+            {"id": "e2", "source": "node-q2", "target": "node-q4", "data": {"label": "Heavy"}},
+        ],
+        all_nodes=[
+            {"id": "node-q2", "data": {}},
+            {"id": "node-q3", "data": {}},
+            {"id": "node-q4", "data": {}},
+        ],
+        campaign_knowledge={"knowledgeItems": []},
+        # Knowledge thread was open, but no route was held (pending_next_node_id is None)
+        conversation_state={"knowledge_thread": {"topic": "router specs", "status": "awaiting_customer_confirmation"}},
+        conversation_history=[],
+    ))
+
+    # Should stay on current node, clear knowledge thread, and reprompt with clarity
+    assert result["next_node_id"] == "node-q2"
+    assert result["intent_matched"] == "reprompt_after_knowledge"
+    assert "knowledge_thread" not in result["conversation_state"]
+    assert "streaming 4K video" in result["ai_response_text"]
+
+
+
+

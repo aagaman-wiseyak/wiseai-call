@@ -182,9 +182,22 @@ export const CAMPAIGN_TEMPLATES: CampaignTemplate[] = [
         },
       },
       {
+        id: 'node-hangup-wrong-contact',
+        type: 'hangup',
+        position: { x: -80, y: 160 },
+        data: {
+          type: 'hangup',
+          label: 'Wrong Contact / Not Available',
+          description: 'Polite apology when reached third party or wrong number',
+          closingScript: 'Apologies for the mix-up! Thank you for letting me know. Have a wonderful day!',
+          disposition: 'wrong_number',
+          sendSummarySms: false,
+        },
+      },
+      {
         id: 'node-hangup-declined',
         type: 'hangup',
-        position: { x: -80, y: 320 },
+        position: { x: -80, y: 340 },
         data: {
           type: 'hangup',
           label: 'Polite Exit & SMS Dispatch',
@@ -215,6 +228,13 @@ export const CAMPAIGN_TEMPLATES: CampaignTemplate[] = [
         target: 'node-q2-usage',
         type: 'custom',
         data: { label: 'Customer Available / Yes' },
+      },
+      {
+        id: 'edge-greet-wrong-contact',
+        source: 'node-greeting',
+        target: 'node-hangup-wrong-contact',
+        type: 'custom',
+        data: { label: 'Wrong Person / Third Party / Not Available' },
       },
       {
         id: 'edge-greet-exit',

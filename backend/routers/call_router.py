@@ -99,8 +99,16 @@ async def process_turn(req: ProcessTurnRequest):
         if isinstance(ev, dict) and ev.get("name") and ev.get("value") is not None:
             updated_vars[ev["name"]] = ev["value"]
 
+    is_lead_suppressed = (
+        routing_result.get("intent_matched") == "wrong_contact"
+        or routing_result.get("conversation_state", {}).get("lead_name_suppressed", False)
+    )
+
     for k, v in updated_vars.items():
-        ai_speech = ai_speech.replace(f"{{{{{k}}}}}", str(v))
+        if k == "lead_name" and is_lead_suppressed:
+            ai_speech = ai_speech.replace("{{lead_name}}", "").replace("  ", " ")
+        else:
+            ai_speech = ai_speech.replace(f"{{{{{k}}}}}", str(v))
 
     audio_b64 = None
     if req.synthesize_audio and ai_speech:
