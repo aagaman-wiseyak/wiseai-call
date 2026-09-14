@@ -122,6 +122,7 @@ export const CAMPAIGN_TEMPLATES: CampaignTemplate[] = [
           speechPrompt: 'Awesome! Are you mainly using the internet for basic browsing and email, or do you have multiple people working from home and streaming 4K video?',
           allowBargeIn: true,
           maxWaitSeconds: 5,
+          maxRepeats: 2,
         },
       },
       {
@@ -135,6 +136,7 @@ export const CAMPAIGN_TEMPLATES: CampaignTemplate[] = [
           speechPrompt: 'Understood! For lighter usage, our Fiber 100 Mbps plan is just $29.99 a month with a 10% loyalty discount. Would you like me to lock in this renewal rate for you today?',
           allowBargeIn: true,
           maxWaitSeconds: 5,
+          maxRepeats: 2,
         },
       },
       {
@@ -148,6 +150,7 @@ export const CAMPAIGN_TEMPLATES: CampaignTemplate[] = [
           speechPrompt: 'Got it! For heavy streaming and remote work, our Ultra 300 Mbps is $49.99/mo, or Gigabit 1000 Mbps at $79.99/mo. Both include a free Wi-Fi 6 router upgrade and 20% annual discount. Which speed fits your home best?',
           allowBargeIn: true,
           maxWaitSeconds: 5,
+          maxRepeats: 2,
         },
       },
       {
@@ -370,6 +373,7 @@ export const CAMPAIGN_TEMPLATES: CampaignTemplate[] = [
           variableToExtract: 'cloud_priority',
           allowBargeIn: true,
           maxWaitSeconds: 6,
+          maxRepeats: 2,
           silencePrompt: 'Just wanted to check if you can hear me OK?',
         },
       },
@@ -641,6 +645,7 @@ export const CAMPAIGN_TEMPLATES: CampaignTemplate[] = [
           variableToExtract: 'pain_score',
           allowBargeIn: true,
           maxWaitSeconds: 8,
+          maxRepeats: 2,
           silencePrompt: 'Take your time, just let me know roughly from 1 to 10.',
         },
       },
@@ -701,6 +706,7 @@ export const CAMPAIGN_TEMPLATES: CampaignTemplate[] = [
           variableToExtract: 'medication_adherence',
           allowBargeIn: true,
           maxWaitSeconds: 6,
+          maxRepeats: 2,
         },
       },
       {
@@ -872,6 +878,7 @@ export const CAMPAIGN_TEMPLATES: CampaignTemplate[] = [
           variableToExtract: 'monthly_bill_range',
           allowBargeIn: true,
           maxWaitSeconds: 6,
+          maxRepeats: 2,
         },
       },
       {

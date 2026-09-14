@@ -193,6 +193,32 @@ export const NodeInspector: React.FC<NodeInspectorProps> = ({
               </div>
             </div>
 
+            <div className="form-group">
+              <label className="form-label">
+                Max Question Repeats / Retries
+                <span style={{ fontSize: '11px', color: '#64748b', fontWeight: 'normal', marginLeft: '6px' }}>
+                  (unclear responses / repeat requests)
+                </span>
+              </label>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <input
+                  type="number"
+                  min={1}
+                  max={5}
+                  className="form-input"
+                  style={{ width: '80px' }}
+                  value={(data as any).maxRepeats ?? 2}
+                  onChange={(e) => {
+                    const val = parseInt(e.target.value, 10);
+                    onUpdateNodeData(selectedNode.id, {
+                      maxRepeats: isNaN(val) ? 2 : Math.max(1, Math.min(5, val)),
+                    } as any);
+                  }}
+                />
+                <span style={{ fontSize: '12px', color: '#64748b' }}>times before fallback/escalation</span>
+              </div>
+            </div>
+
             <div className="form-group checkbox-row">
               <label>
                 <input

@@ -90,3 +90,99 @@ def test_campaign_and_call_state_are_tenant_scoped(tmp_path):
     store.save_call_state("tenant-a", "renewal", "call-1", {"pending_next_node_id": "q2"})
     assert store.get_call_state("tenant-a", "renewal", "call-1") == {"pending_next_node_id": "q2"}
     assert store.get_call_state("tenant-b", "renewal", "call-1") == {}
+
+
+def test_repeat_question_increments_count(monkeypatch):
+    async def completion(*_args, **_kwargs):
+        return {
+            "decision": "repeat",
+            "selected_route_id": None,
+            "has_question": False,
+            "answer": "No problem! Let me repeat: Do you use the internet mainly for streaming?",
+            "knowledge_action": "no_knowledge",
+            "confidence": 0.95,
+            "reasoning": "Customer asked to repeat the question.",
+        }
+
+    monkeypatch.setattr("services.turn_orchestrator.llm_service.structured_completion", completion)
+    result = asyncio.run(turn_orchestrator.process(
+        user_text="What did you say? Can you repeat?",
+        current_node={"id": "q1", "data": {"speechPrompt": "Do you use the internet mainly for streaming?", "maxRepeats": 2}},
+        outgoing_branches=[{"id": "yes", "source": "q1", "target": "q2", "data": {"label": "Yes"}}],
+        all_nodes=[{"id": "q1", "data": {}}, {"id": "q2", "data": {}}],
+        campaign_knowledge={"knowledgeItems": []},
+        conversation_state={},
+        conversation_history=[],
+    ))
+
+    assert result["next_node_id"] == "q1"
+    assert result["intent_matched"] == "repeated_question"
+    assert result["conversation_state"]["repeat_counts"]["q1"] == 1
+    assert "streaming" in result["ai_response_text"]
+
+
+def test_max_repeats_routes_to_fallback(monkeypatch):
+    async def completion(*_args, **_kwargs):
+        return {
+            "decision": "repeat",
+            "selected_route_id": None,
+            "has_question": False,
+            "answer": "",
+            "knowledge_action": "no_knowledge",
+            "confidence": 0.5,
+            "reasoning": "Unclear answer.",
+        }
+
+    monkeypatch.setattr("services.turn_orchestrator.llm_service.structured_completion", completion)
+    result = asyncio.run(turn_orchestrator.process(
+        user_text="mumbled unhelpful sound",
+        current_node={"id": "q1", "data": {"speechPrompt": "Confirm plan?", "maxRepeats": 2}},
+        outgoing_branches=[
+            {"id": "yes", "source": "q1", "target": "q2", "data": {"label": "Yes"}},
+            {"id": "fallback", "source": "q1", "target": "hangup-node", "data": {"label": "Decline / Exit"}},
+        ],
+        all_nodes=[
+            {"id": "q1", "data": {}},
+            {"id": "q2", "data": {}},
+            {"id": "hangup-node", "data": {"type": "hangup", "label": "Exit"}},
+        ],
+        campaign_knowledge={"knowledgeItems": []},
+        # Node has already been repeated twice (maxRepeats: 2)
+        conversation_state={"repeat_counts": {"q1": 2}},
+        conversation_history=[],
+    ))
+
+    # Should route to fallback branch
+    assert result["next_node_id"] == "hangup-node"
+    assert result["intent_matched"] == "max_repeats_fallback"
+    assert "repeat_counts" not in result["conversation_state"]
+
+
+def test_variable_extraction_returned(monkeypatch):
+    async def completion(*_args, **_kwargs):
+        return {
+            "decision": "transition",
+            "selected_route_id": "q2",
+            "has_question": False,
+            "answer": "",
+            "knowledge_action": "no_knowledge",
+            "extracted_variable": {"name": "pain_score", "value": 7},
+            "confidence": 0.98,
+            "reasoning": "Customer indicated a pain level of 7.",
+        }
+
+    monkeypatch.setattr("services.turn_orchestrator.llm_service.structured_completion", completion)
+    result = asyncio.run(turn_orchestrator.process(
+        user_text="I'd say my pain is around a 7 today.",
+        current_node={"id": "q1", "data": {"speechPrompt": "How is your pain from 1 to 10?", "variableToExtract": "pain_score"}},
+        outgoing_branches=[{"id": "branch-severe", "source": "q1", "target": "q2", "data": {"label": "Severe (7+)"}}],
+        all_nodes=[{"id": "q1", "data": {}}, {"id": "q2", "data": {}}],
+        campaign_knowledge={"knowledgeItems": []},
+        conversation_state={},
+        conversation_history=[],
+    ))
+
+    assert result["next_node_id"] == "q2"
+    assert result["extracted_variable"] == {"name": "pain_score", "value": 7}
+
+

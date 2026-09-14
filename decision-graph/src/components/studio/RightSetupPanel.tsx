@@ -352,6 +352,34 @@ export const RightSetupPanel: React.FC<RightSetupPanelProps> = ({
                       />
                     </div>
 
+                    <div className="clean-field-group">
+                      <label className="clean-label">
+                        Max Question Repeats / Retries
+                        <span style={{ fontSize: '11px', color: '#64748b', fontWeight: 'normal', marginLeft: '6px' }}>
+                          (unclear answers or repeat requests)
+                        </span>
+                      </label>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <input
+                          type="number"
+                          min={1}
+                          max={5}
+                          className="clean-input"
+                          style={{ width: '90px' }}
+                          value={(selectedNode.data as any).maxRepeats ?? 2}
+                          onChange={(e) => {
+                            const val = parseInt(e.target.value, 10);
+                            onUpdateNodeData(selectedNode.id, {
+                              maxRepeats: isNaN(val) ? 2 : Math.max(1, Math.min(5, val)),
+                            } as any);
+                          }}
+                        />
+                        <span style={{ fontSize: '12px', color: '#64748b' }}>
+                          times before escalating/fallback (default: 2)
+                        </span>
+                      </div>
+                    </div>
+
                     <div className="clean-checkbox-row">
                       <label>
                         <input

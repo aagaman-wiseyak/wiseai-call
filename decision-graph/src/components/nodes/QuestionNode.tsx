@@ -30,6 +30,9 @@ export const QuestionNode: React.FC<NodeProps> = ({ data, selected }) => {
               Extract: <code>{nodeData.variableToExtract}</code>
             </span>
           )}
+          <span className="clean-subtle-tag" title="Maximum times AI will repeat/clarify if response is unclear">
+            ↻ Max {nodeData.maxRepeats ?? 2} repeats
+          </span>
           {nodeData.allowBargeIn && (
             <span className="clean-subtle-tag">Barge-in on</span>
           )}

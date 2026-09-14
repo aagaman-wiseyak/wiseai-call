@@ -76,8 +76,8 @@ async def process_turn(req: ProcessTurnRequest):
 
     ai_speech = ""
     action_data = None
-    # Knowledge answers are already composed by the grounded orchestrator.
-    if routing_result.get("knowledge_invoked"):
+    # Orchestrator-composed speech takes priority (knowledge answers, question repeats, escalations)
+    if routing_result.get("ai_response_text"):
         ai_speech = routing_result.get("ai_response_text", "")
     elif next_node:
         ntype = next_node.get("data", {}).get("type")
@@ -93,7 +93,13 @@ async def process_turn(req: ProcessTurnRequest):
         else:
             ai_speech = next_node.get("data", {}).get("label", "")
 
-    for k, v in req.variables.items():
+    updated_vars = dict(req.variables)
+    if routing_result.get("extracted_variable"):
+        ev = routing_result["extracted_variable"]
+        if isinstance(ev, dict) and ev.get("name") and ev.get("value") is not None:
+            updated_vars[ev["name"]] = ev["value"]
+
+    for k, v in updated_vars.items():
         ai_speech = ai_speech.replace(f"{{{{{k}}}}}", str(v))
 
     audio_b64 = None
@@ -112,7 +118,7 @@ async def process_turn(req: ProcessTurnRequest):
         reasoning=routing_result.get("reasoning", "Mapped by LLM intent router"),
         action_payload=action_data,
         audio_base64=audio_b64,
-        updated_variables=req.variables,
+        updated_variables=updated_vars,
         conversation_state=routing_result.get("conversation_state", req.conversation_state),
     )
 

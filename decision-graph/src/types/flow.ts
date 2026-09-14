@@ -44,7 +44,9 @@ export interface QuestionNodeData extends NodeDataCommon {
   allowBargeIn: boolean;
   maxWaitSeconds: number;
   silencePrompt?: string;
+  maxRepeats?: number;
 }
+
 
 export interface ScenarioBranchNodeData extends NodeDataCommon {
   evaluationCriteria: string;

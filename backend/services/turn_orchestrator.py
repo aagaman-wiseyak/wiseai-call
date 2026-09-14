@@ -76,6 +76,7 @@ class TurnOrchestrator:
         state = dict(conversation_state or {})
         pending_node_id = state.get("pending_next_node_id")
         knowledge_thread = state.get("knowledge_thread") or {}
+        current_node_id = current_node.get("id")
 
         routes = []
         valid_route_ids = set()
@@ -102,24 +103,48 @@ class TurnOrchestrator:
             else "LANGUAGE REQUIREMENT: Respond in natural conversational English.\n"
         )
 
+        variable_name = current_node.get("data", {}).get("variableToExtract")
+        var_instruction = ""
+        if variable_name:
+            var_instruction = (
+                f"VARIABLE EXTRACTION:\n"
+                f"The CURRENT_STEP expects an extracted variable named '{variable_name}'. "
+                f"If the customer's response specifies or implies a value for '{variable_name}' (e.g. a rating, budget, timeframe, or category), "
+                f"extract the normalized value into 'extracted_variable': {{\"name\": \"{variable_name}\", \"value\": <extracted_value>}}.\n"
+                f"If the customer did not specify a value for '{variable_name}', set 'extracted_variable': null.\n\n"
+            )
+
         system_prompt = (
-            f"You are an outbound-call turn interpreter. Return strict JSON only.\n{lang_instruction}"
-            "You may propose a route ONLY from ALLOWED_ROUTES. A customer can both answer a question and ask a question in the same utterance. "
-            "When they ask a question, preserve any proposed route as pending and answer before advancing.\n"
-            "Use only APPROVED_KNOWLEDGE for an answer. Never make up pricing, policy, eligibility, or company facts. "
-            "If the handbook cannot answer, say so briefly and offer the configured human/support follow-up; do not invent an answer.\n"
-            "If a knowledge thread is open, resolve it only when the customer clearly indicates they are satisfied or asks to continue. "
-            "A follow-up question keeps it open. A rejection/callback request can replace the held route if an allowed route matches.\n\n"
+            f"You are an outbound-call turn interpreter and flow decision engine. Return strict JSON only.\n{lang_instruction}"
+            "TASK:\n"
+            "Analyze what the customer said in response to CURRENT_STEP and classify into ONE of three actions:\n"
+            "1. 'transition': The customer answered the question or expressed an intent matching an allowed route. Propose selected_route_id from ALLOWED_ROUTES.\n"
+            "2. 'knowledge': The customer asked a question or raised a concern answered by APPROVED_KNOWLEDGE. "
+            "Use only APPROVED_KNOWLEDGE. Never make up facts. Formulate a concise spoken 'answer' addressing their question AND naturally re-anchoring them to answer the CURRENT_STEP question.\n"
+            "3. 'repeat': The customer asked to repeat ('what did you say?', 'repeat please', 'sorry?'), gave an ambiguous or unrecognized reply, or was unclear. "
+            "Formulate a polite, natural rephrased repetition of the CURRENT_STEP question in 'answer'.\n\n"
+            f"{var_instruction}"
+            "COMPOUND INPUTS:\n"
+            "If the customer both answers and asks a question in the same utterance, select the route in selected_route_id, set has_question=true, set knowledge_action='answer_and_hold', and provide the spoken answer.\n"
+            "If a knowledge thread is already open and the customer is now satisfied or says 'okay/continue', set knowledge_action='continue_held_route'.\n\n"
             f"CURRENT_STEP: {_script(current_node)}\n"
             f"ALLOWED_ROUTES: {json.dumps(routes)}\n"
             f"HELD_ROUTE_ID: {pending_node_id or 'none'}\n"
             f"OPEN_KNOWLEDGE_THREAD: {json.dumps(knowledge_thread)}\n"
             f"APPROVED_KNOWLEDGE: {json.dumps(handbook)}\n\n"
             "Return this JSON shape:\n"
-            '{"selected_route_id": "allowed id or null", "has_question": true, '
-            '"answer": "spoken answer or empty", "source_ids": ["approved item id"], '
-            '"knowledge_action": "answer_and_hold|continue_held_route|no_knowledge", '
-            '"topic": "short topic or null", "confidence": 0.0, "reasoning": "short"}'
+            '{\n'
+            '  "decision": "transition|repeat|knowledge",\n'
+            '  "selected_route_id": "allowed id or null",\n'
+            '  "has_question": true,\n'
+            '  "answer": "spoken answer, repetition, or empty string",\n'
+            '  "source_ids": ["approved item id"],\n'
+            '  "knowledge_action": "answer_and_hold|continue_held_route|no_knowledge",\n'
+            '  "extracted_variable": {"name": "variable_name", "value": "extracted value"} or null,\n'
+            '  "topic": "short topic or null",\n'
+            '  "confidence": 0.0,\n'
+            '  "reasoning": "short explanation"\n'
+            '}'
         )
         user_prompt = f"RECENT_DIALOGUE: {json.dumps(history)}\nCUSTOMER: {user_text}"
 
@@ -133,13 +158,13 @@ class TurnOrchestrator:
                 else "I’m sorry, I couldn’t process that just now. Could you please repeat it?"
             )
             return {
-                "next_node_id": None,
+                "next_node_id": current_node_id,
                 "ai_response_text": fallback_speech,
                 "intent_matched": "interpretation_unavailable",
                 "confidence": 0.0,
                 "knowledge_invoked": False,
                 "knowledge_topic": None,
-                "reasoning": "LLM interpretation failed; no transition was taken.",
+                "reasoning": "LLM interpretation failed; stayed on current node.",
                 "conversation_state": state,
             }
 
@@ -154,10 +179,13 @@ class TurnOrchestrator:
         action = result.get("knowledge_action", "no_knowledge")
         has_question = bool(result.get("has_question"))
         answer = str(result.get("answer") or "").strip()
+        decision = result.get("decision", "transition" if proposed_route else "repeat")
+        extracted_var = result.get("extracted_variable")
+        if not (isinstance(extracted_var, dict) and extracted_var.get("name") and extracted_var.get("value") is not None):
+            extracted_var = None
 
-        if has_question or action == "answer_and_hold":
-            # A question always takes precedence over advancing. Keep a newly
-            # detected route, otherwise retain the already held route.
+        # 1. KNOWLEDGE QUESTION OR ANSWER_AND_HOLD
+        if has_question or action == "answer_and_hold" or (decision == "knowledge" and (answer or source_ids)):
             held_route = proposed_route or pending_node_id
             state["pending_next_node_id"] = held_route
             state["knowledge_thread"] = {
@@ -166,22 +194,30 @@ class TurnOrchestrator:
                 "source_ids": source_ids,
             }
             if not answer:
-                answer = "I don’t have an approved answer for that detail. I can arrange for our team to follow up."
+                answer = (
+                    "माफ गर्नुहोस्, यस सम्बन्धी आधिकारिक जानकारी मसँग छैन। म हाम्रो टोलीसँग बुझेर खबर गराउन सक्छु।"
+                    if language == "nep"
+                    else "I don’t have an approved answer for that detail. I can arrange for our team to follow up."
+                )
             return {
-                "next_node_id": current_node.get("id"),
+                "next_node_id": current_node_id,
                 "ai_response_text": answer,
                 "intent_matched": "campaign_knowledge",
                 "confidence": result.get("confidence", 0.0),
                 "knowledge_invoked": True,
                 "knowledge_topic": state["knowledge_thread"]["topic"],
                 "knowledge_source_ids": source_ids,
+                "extracted_variable": extracted_var,
                 "reasoning": result.get("reasoning", "Answered campaign question and held the next route."),
                 "conversation_state": state,
             }
 
+        # 2. RESUME HELD ROUTE AFTER KNOWLEDGE RESOLUTION
         if action == "continue_held_route" and pending_node_id:
             state.pop("pending_next_node_id", None)
             state.pop("knowledge_thread", None)
+            if "repeat_counts" in state and not state["repeat_counts"]:
+                state.pop("repeat_counts", None)
             return {
                 "next_node_id": pending_node_id,
                 "ai_response_text": "",
@@ -189,20 +225,107 @@ class TurnOrchestrator:
                 "confidence": result.get("confidence", 0.0),
                 "knowledge_invoked": False,
                 "knowledge_topic": None,
+                "extracted_variable": extracted_var,
                 "reasoning": result.get("reasoning", "Customer resolved the question; resuming held route."),
                 "conversation_state": state,
             }
 
+        # 3. SUCCESSFUL TRANSITION TO NEXT NODE
+        if proposed_route and decision != "repeat":
+            repeat_counts = state.get("repeat_counts", {})
+            if current_node_id and current_node_id in repeat_counts:
+                del repeat_counts[current_node_id]
+            if repeat_counts:
+                state["repeat_counts"] = repeat_counts
+            else:
+                state.pop("repeat_counts", None)
+
+            return {
+                "next_node_id": proposed_route,
+                "ai_response_text": "",
+                "intent_matched": "routed",
+                "confidence": result.get("confidence", 0.0),
+                "knowledge_invoked": False,
+                "knowledge_topic": None,
+                "extracted_variable": extracted_var,
+                "reasoning": result.get("reasoning", "Mapped by LLM intent router."),
+                "conversation_state": state,
+            }
+
+        # 4. REPEAT / CLARIFY WITH PER-QUESTION POLICY
+        max_repeats = int(current_node.get("data", {}).get("maxRepeats") or 2)
+        repeat_counts = state.setdefault("repeat_counts", {})
+        current_repeats = repeat_counts.get(current_node_id, 0)
+
+        if current_repeats < max_repeats:
+            repeat_counts[current_node_id] = current_repeats + 1
+            state["repeat_counts"] = repeat_counts
+
+            current_script = _script(current_node)
+            if not answer:
+                if language == "nep":
+                    answer = f"हजुर, मैले भन्न खोजेको: {current_script}"
+                else:
+                    answer = f"No problem, let me repeat: {current_script}"
+
+            return {
+                "next_node_id": current_node_id,
+                "ai_response_text": answer,
+                "intent_matched": "repeated_question",
+                "confidence": result.get("confidence", 0.0),
+                "knowledge_invoked": False,
+                "knowledge_topic": None,
+                "extracted_variable": extracted_var,
+                "reasoning": f"Repeated question ({current_repeats + 1}/{max_repeats}).",
+                "conversation_state": state,
+            }
+
+        # MAX REPEATS REACHED: TAKE FALLBACK BRANCH OR POLITE EXIT
+        repeat_counts.pop(current_node_id, None)
+        if not repeat_counts:
+            state.pop("repeat_counts", None)
+
+        fallback_branch = None
+        for edge in outgoing_branches:
+            target_id = edge.get("target")
+            target = next((n for n in all_nodes if n.get("id") == target_id), None)
+            target_type = target.get("data", {}).get("type") if target else ""
+            edge_label = (edge.get("data", {}).get("label") or edge.get("label") or "").lower()
+            if target_type == "hangup" or any(w in edge_label for w in ["exit", "busy", "decline", "fallback"]):
+                fallback_branch = target_id
+                break
+
+        if fallback_branch:
+            return {
+                "next_node_id": fallback_branch,
+                "ai_response_text": (
+                    "माफ गर्नुहोस्, सम्पर्कमा केही कठिनाइ भयो। म आवश्यक विवरण सन्देशमार्फत पठाइदिनेछु। धन्यवाद!"
+                    if language == "nep"
+                    else "I apologize, it seems we're having a little trouble connecting. I'll send you the details directly so you have them. Have a great day!"
+                ),
+                "intent_matched": "max_repeats_fallback",
+                "confidence": 1.0,
+                "knowledge_invoked": False,
+                "knowledge_topic": None,
+                "reasoning": f"Max repeats ({max_repeats}) reached. Routed to fallback node {fallback_branch}.",
+                "conversation_state": state,
+            }
+
         return {
-            "next_node_id": proposed_route,
-            "ai_response_text": "",
-            "intent_matched": "routed" if proposed_route else "needs_clarification",
-            "confidence": result.get("confidence", 0.0),
+            "next_node_id": None,
+            "ai_response_text": (
+                "मैले तपाईंको आवाज राम्रोसँग सुन्न सकिन। म पछि फेरि सम्पर्क गर्नेछु। धन्यवाद!"
+                if language == "nep"
+                else "I'm having a little trouble hearing you clearly. Let me have our team follow up with you directly. Thank you!"
+            ),
+            "intent_matched": "max_repeats_exceeded",
+            "confidence": 1.0,
             "knowledge_invoked": False,
             "knowledge_topic": None,
-            "reasoning": result.get("reasoning", "No valid transition selected."),
+            "reasoning": f"Max repeats ({max_repeats}) reached without explicit fallback edge.",
             "conversation_state": state,
         }
+
 
 
 turn_orchestrator = TurnOrchestrator()

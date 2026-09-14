@@ -87,6 +87,14 @@ export const VoiceCallPage: React.FC<VoiceCallPageProps> = ({
   const streamIntervalRef = useRef<any>(null);
   const transcriptEndRef = useRef<HTMLDivElement>(null);
 
+  // Synchronized refs to avoid stale closure issues in audio callbacks
+  const simStateRef = useRef(simState);
+  simStateRef.current = simState;
+  const isRoutingRef = useRef(isRouting);
+  isRoutingRef.current = isRouting;
+  const nodesRef = useRef(nodes);
+  nodesRef.current = nodes;
+
   // Auto-scroll transcript to bottom
   useEffect(() => {
     transcriptEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -185,21 +193,72 @@ export const VoiceCallPage: React.FC<VoiceCallPageProps> = ({
           energyThreshold: 14,
           silenceDurationMs: 1100,
           onVoiceActivity: (level, speaking) => {
-            if (simState.isAiSpeaking || isRouting) {
+            const currentSim = simStateRef.current;
+            const currentRouting = isRoutingRef.current;
+
+            if (currentRouting) {
               setUserVoiceLevel(0);
               setIsUserSpeaking(false);
               return;
             }
+
+            // Real-Time Barge-In Check
+            const activeNode = nodesRef.current.find((n) => n.id === currentSim.activeNodeId);
+            const allowBargeIn = (activeNode?.data as any)?.allowBargeIn !== false;
+
+            if (currentSim.isAiSpeaking) {
+              if (allowBargeIn && speaking && level > 16) {
+                // User interrupted AI speech!
+                stopSpeech();
+                if (streamIntervalRef.current) {
+                  clearInterval(streamIntervalRef.current);
+                  streamIntervalRef.current = null;
+                }
+                setActiveStreamingMsgId(null);
+                setStreamingText('');
+                setSimState((prev) => ({ ...prev, isAiSpeaking: false }));
+                setUserVoiceLevel(level);
+                setIsUserSpeaking(true);
+                return;
+              }
+              setUserVoiceLevel(0);
+              setIsUserSpeaking(false);
+              return;
+            }
+
             setUserVoiceLevel(level);
             setIsUserSpeaking(speaking);
           },
           onSpeechStart: () => {
-            if (!simState.isAiSpeaking && !isRouting) {
-              setIsUserSpeaking(true);
+            const currentSim = simStateRef.current;
+            const currentRouting = isRoutingRef.current;
+            if (currentRouting) return;
+
+            const activeNode = nodesRef.current.find((n) => n.id === currentSim.activeNodeId);
+            const allowBargeIn = (activeNode?.data as any)?.allowBargeIn !== false;
+
+            if (currentSim.isAiSpeaking) {
+              if (allowBargeIn) {
+                // Instantly interrupt on speech onset
+                stopSpeech();
+                if (streamIntervalRef.current) {
+                  clearInterval(streamIntervalRef.current);
+                  streamIntervalRef.current = null;
+                }
+                setActiveStreamingMsgId(null);
+                setStreamingText('');
+                setSimState((prev) => ({ ...prev, isAiSpeaking: false }));
+                setIsUserSpeaking(true);
+              }
+              return;
             }
+
+            setIsUserSpeaking(true);
           },
           onSpeechEnd: async (wavBlob: Blob) => {
-            if (simState.status !== 'connected' || simState.isAiSpeaking || isRouting) return;
+            const currentSim = simStateRef.current;
+            const currentRouting = isRoutingRef.current;
+            if (currentSim.status !== 'connected' || currentRouting) return;
 
             setIsTranscribing(true);
             try {
@@ -241,7 +300,7 @@ export const VoiceCallPage: React.FC<VoiceCallPageProps> = ({
       setUserVoiceLevel(0);
       setIsUserSpeaking(false);
     }
-  }, [simState.status, micEnabled, simState.isAiSpeaking, isRouting]);
+  }, [simState.status, micEnabled]);
 
   const toggleMic = () => {
     setMicEnabled((prev) => !prev);
@@ -442,24 +501,43 @@ export const VoiceCallPage: React.FC<VoiceCallPageProps> = ({
         setIsRouting(false);
         setConversationState(result.conversation_state || {});
 
-        // 1. CAMPAIGN KNOWLEDGE LOOKUP
-        if (result.knowledge_invoked) {
-          const kMsgId = `ai-knowledge-${Date.now()}`;
-          const knowledgeMsg: SimulationMessage = {
-            id: kMsgId,
+        const updatedVars = result.updated_variables || simState.variables;
+        setSimState((prev) => ({
+          ...prev,
+          variables: updatedVars,
+        }));
+
+        // 1. REPEAT QUESTION, KNOWLEDGE LOOKUP, OR IN-PLACE CLARIFICATION
+        const staysOnCurrentNode = result.next_node_id === simState.activeNodeId;
+        if (
+          result.knowledge_invoked ||
+          result.intent_matched === 'repeated_question' ||
+          (staysOnCurrentNode && result.ai_response_text)
+        ) {
+          const replyId = `ai-reply-${Date.now()}`;
+          const label = result.knowledge_topic
+            ? `Knowledge: ${result.knowledge_topic}`
+            : result.intent_matched === 'repeated_question'
+            ? 'Question Repeated'
+            : 'Clarification';
+
+          const replyMsg: SimulationMessage = {
+            id: replyId,
             speaker: 'agent',
             text: '',
             timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-            intentMatched: result.knowledge_topic || 'Campaign Knowledge',
+            intentMatched: label,
+            nodeId: simState.activeNodeId || undefined,
           };
 
           setSimState((prev) => ({
             ...prev,
-            transcript: [...newTranscript, knowledgeMsg],
+            variables: updatedVars,
+            transcript: [...newTranscript, replyMsg],
             isAiSpeaking: true,
           }));
 
-          streamWords(kMsgId, result.ai_response_text);
+          streamWords(replyId, result.ai_response_text);
 
           if (simState.audioTtsEnabled) {
             speakText(result.ai_response_text, knowledge.agentPersona.speakingRate || 1.0, 1.0, () => {
@@ -471,20 +549,51 @@ export const VoiceCallPage: React.FC<VoiceCallPageProps> = ({
           return;
         }
 
-        // 2. LLM INTENT ROUTING TO NEXT NODE
-        if (result.next_node_id) {
+        // 2. ROUTING TO NEXT NODE (Destination is different from current)
+        if (result.next_node_id && result.next_node_id !== simState.activeNodeId) {
           const nextNode = nodes.find((n) => n.id === result.next_node_id);
           if (nextNode) {
             const edgeBetween = edges.find(
               (e) => e.source === simState.activeNodeId && e.target === result.next_node_id
             );
             if (edgeBetween) {
-              setSimState((prev) => ({ ...prev, activeEdgeId: edgeBetween.id }));
+              setSimState((prev) => ({ ...prev, variables: updatedVars, activeEdgeId: edgeBetween.id }));
             }
 
-            executeNode(nextNode, result.updated_variables || simState.variables);
+            executeNode(nextNode, updatedVars);
             return;
           }
+        }
+
+        // 3. FALLBACK / ESCALATION SPEECH FROM BACKEND (e.g. max repeats reached)
+        if (result.ai_response_text) {
+          const escId = `ai-esc-${Date.now()}`;
+          setSimState((prev) => ({
+            ...prev,
+            variables: updatedVars,
+            transcript: [
+              ...newTranscript,
+              {
+                id: escId,
+                speaker: 'agent',
+                text: '',
+                timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+                intentMatched: result.intent_matched || 'Escalation',
+              },
+            ],
+            isAiSpeaking: true,
+          }));
+
+          streamWords(escId, result.ai_response_text);
+
+          if (simState.audioTtsEnabled) {
+            speakText(result.ai_response_text, knowledge.agentPersona.speakingRate || 1.0, 1.0, () => {
+              setSimState((prev) => ({ ...prev, isAiSpeaking: false }));
+            }, { language: callLanguage });
+          } else {
+            setTimeout(() => setSimState((prev) => ({ ...prev, isAiSpeaking: false })), 1200);
+          }
+          return;
         }
       }
     } catch (apiError) {
@@ -493,17 +602,10 @@ export const VoiceCallPage: React.FC<VoiceCallPageProps> = ({
 
     setIsRouting(false);
 
-    // Fallback traversal
-    const outgoingEdges = edges.filter((e) => e.source === simState.activeNodeId);
-    if (outgoingEdges.length > 0) {
-      const nextNode = nodes.find((n) => n.id === outgoingEdges[0].target);
-      if (nextNode) {
-        setTimeout(() => executeNode(nextNode, simState.variables), 400);
-        return;
-      }
-    }
-
-    const fallbackReply = 'Understood. Could you share a bit more about that?';
+    // Polite in-place clarification prompt if backend failed or no speech was returned
+    const fallbackReply = callLanguage === 'nep'
+      ? 'माफ गर्नुहोस्, मैले बुझ्न सकिन। कृपया फेरि भन्नुहुन्छ कि?'
+      : 'I’m sorry, I didn’t quite catch that. Could you repeat it?';
     const fMsgId = `ai-ack-${Date.now()}`;
     setSimState((prev) => ({
       ...prev,
