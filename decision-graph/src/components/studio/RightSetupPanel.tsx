@@ -623,56 +623,125 @@ export const RightSetupPanel: React.FC<RightSetupPanelProps> = ({
                     {/* Customer-defined response path */}
                     <div className="quick-branch-toolbar">
                       {!isAddingCustomPath ? (
-                        <button type="button" className="btn-clean-outline btn-sm add-response-path-button" onClick={() => setIsAddingCustomPath(true)}>
-                          <Plus size={13} /> Add customer response path
-                        </button>
-                      ) : <div className="custom-branch-inline-form">
-                        <div className="custom-branch-heading">
-                          <span>Create a custom response path</span>
-                          <p>Describe what the customer says, then choose the next step.</p>
+                        <div style={{ display: 'grid', gap: '8px' }}>
+                          <button type="button" className="btn-clean-outline btn-sm add-response-path-button" onClick={() => setIsAddingCustomPath(true)}>
+                            <Plus size={13} /> Add response path
+                          </button>
+                          <span style={{ fontSize: '11px', color: '#64748b' }}>
+                            💡 Or drag from a node handle on the canvas to name paths directly.
+                          </span>
                         </div>
-                        <label className="custom-branch-field">
-                          <span>Customer response</span>
-                          <input
-                            type="text"
-                            className="clean-input clean-input-sm"
-                            placeholder="e.g. Asks about contract length"
-                            value={customBranchText}
-                            onChange={(e) => setCustomBranchText(e.target.value)}
-                          />
-                        </label>
-                        <label className="custom-branch-field">
-                          <span>Then go to</span>
-                          <select
-                            className="clean-select clean-select-sm"
-                            value={customBranchTarget}
-                            onChange={(e) => setCustomBranchTarget(e.target.value)}
-                          >
-                            <option value="">Choose the next step...</option>
-                            {otherNodes.map((n) => (
-                              <option key={n.id} value={n.id}>
-                                {n.data.label} — {stepTypeName(n.data.type)}
-                              </option>
+                      ) : (
+                        <div className="custom-branch-inline-form">
+                          <div className="custom-branch-heading">
+                            <span>Add dialogue branch</span>
+                            <p>What does the customer say, and what step follows next?</p>
+                          </div>
+
+                          {/* Quick suggestion chips */}
+                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', marginBottom: '6px' }}>
+                            {[
+                              { text: 'Yes / Accepted', color: '#10b981' },
+                              { text: 'User Busy / Later', color: '#3b82f6' },
+                              { text: 'Price Objection', color: '#f59e0b' },
+                              { text: 'Not Interested', color: '#ef4444' },
+                            ].map((sug) => (
+                              <button
+                                key={sug.text}
+                                type="button"
+                                onClick={() => setCustomBranchText(sug.text)}
+                                style={{
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: '4px',
+                                  padding: '2px 7px',
+                                  fontSize: '10px',
+                                  fontWeight: 600,
+                                  borderRadius: '9999px',
+                                  border: `1px solid ${sug.color}40`,
+                                  background: customBranchText === sug.text ? `${sug.color}20` : '#f8fafc',
+                                  color: '#334155',
+                                  cursor: 'pointer',
+                                }}
+                              >
+                                <span style={{ width: 5, height: 5, borderRadius: '50%', background: sug.color }} />
+                                {sug.text}
+                              </button>
                             ))}
-                          </select>
-                        </label>
-                        <button
-                          type="button"
-                          className="btn-clean-primary btn-sm custom-branch-connect"
-                          disabled={!customBranchText.trim() || !customBranchTarget}
-                          onClick={() => {
-                            if (customBranchText && customBranchTarget) {
-                              onAddBranchConnection(selectedNode.id, customBranchText, customBranchTarget);
-                              setCustomBranchText('');
-                              setCustomBranchTarget('');
-                              setIsAddingCustomPath(false);
-                            }
-                          }}
-                        >
-                          Add response path
-                        </button>
-                        <button type="button" className="btn-clean-text btn-sm" onClick={() => { setIsAddingCustomPath(false); setCustomBranchText(''); setCustomBranchTarget(''); }}>Cancel</button>
-                      </div>}
+                          </div>
+
+                          <label className="custom-branch-field">
+                            <span>Customer response condition</span>
+                            <input
+                              type="text"
+                              className="clean-input clean-input-sm"
+                              placeholder="e.g. User busy, Yes / Accepted..."
+                              value={customBranchText}
+                              onChange={(e) => setCustomBranchText(e.target.value)}
+                            />
+                          </label>
+
+                          <label className="custom-branch-field">
+                            <span>Then go to</span>
+                            <select
+                              className="clean-select clean-select-sm"
+                              value={customBranchTarget}
+                              onChange={(e) => setCustomBranchTarget(e.target.value)}
+                            >
+                              <option value="">Choose next step...</option>
+                              {otherNodes.length > 0 && (
+                                <optgroup label="Existing canvas steps">
+                                  {otherNodes.map((n) => (
+                                    <option key={n.id} value={n.id}>
+                                      {n.data.label} — {stepTypeName(n.data.type)}
+                                    </option>
+                                  ))}
+                                </optgroup>
+                              )}
+                              <optgroup label="Create new step and connect">
+                                <option value="__create_question__">+ Create new Question step</option>
+                                <option value="__create_action__">+ Create new Action / Booking step</option>
+                                <option value="__create_knowledge__">+ Create new Answer Concern step</option>
+                                <option value="__create_hangup__">+ Create new End Call step</option>
+                              </optgroup>
+                            </select>
+                          </label>
+
+                          <div style={{ display: 'flex', gap: '6px', marginTop: '6px' }}>
+                            <button
+                              type="button"
+                              className="btn-clean-primary btn-sm custom-branch-connect"
+                              disabled={!customBranchText.trim() || !customBranchTarget}
+                              onClick={() => {
+                                if (customBranchText && customBranchTarget) {
+                                  if (customBranchTarget.startsWith('__create_')) {
+                                    const createdType = customBranchTarget.replace('__create_', '').replace('__', '') as OutboundNodeType;
+                                    onQuickCreateAndConnect(selectedNode.id, customBranchText, createdType);
+                                  } else {
+                                    onAddBranchConnection(selectedNode.id, customBranchText, customBranchTarget);
+                                  }
+                                  setCustomBranchText('');
+                                  setCustomBranchTarget('');
+                                  setIsAddingCustomPath(false);
+                                }
+                              }}
+                            >
+                              Connect branch
+                            </button>
+                            <button
+                              type="button"
+                              className="btn-clean-text btn-sm"
+                              onClick={() => {
+                                setIsAddingCustomPath(false);
+                                setCustomBranchText('');
+                                setCustomBranchTarget('');
+                              }}
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        </div>
+                      )}
                     </div>
                   </div>
                 )}

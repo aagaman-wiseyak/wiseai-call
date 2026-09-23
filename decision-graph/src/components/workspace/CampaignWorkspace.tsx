@@ -20,6 +20,13 @@ const tabs: Array<{ id: WorkspaceTab; label: string; icon: React.ElementType }> 
   { id: 'knowledge', label: 'Knowledge & rules', icon: BookOpen },
 ];
 
+const TONE_OPTIONS: Array<{ value: CampaignKnowledge['agentPersona']['tone']; label: string; desc: string }> = [
+  { value: 'friendly_professional', label: 'Friendly & Professional', desc: 'Warm, approachable, respectful' },
+  { value: 'consultative', label: 'Consultative', desc: 'Advisory, attentive, thoughtful' },
+  { value: 'empathetic', label: 'Empathetic', desc: 'Understanding, reassuring, patient' },
+  { value: 'authoritative', label: 'Direct & Crisp', desc: 'Concise, efficient, clear' },
+];
+
 export const CampaignWorkspace: React.FC<CampaignWorkspaceProps> = ({
   template,
   knowledge,
@@ -67,6 +74,9 @@ export const CampaignWorkspace: React.FC<CampaignWorkspaceProps> = ({
     }
   };
 
+  const promptValue = knowledge.requirementsPrompt || '';
+  const canGenerate = Boolean(promptValue.trim() || knowledge.description.trim()) && !isGenerating;
+
   return (
     <main className="workspace-page">
       <header className="workspace-header">
@@ -93,20 +103,88 @@ export const CampaignWorkspace: React.FC<CampaignWorkspaceProps> = ({
         <section className="workspace-content">
           {activeTab === 'overview' && <>
             <span className="workspace-section-label">START HERE</span>
-            <h2>What is this campaign for?</h2>
-            <p className="workspace-lead">Set the campaign identity first. You can add business facts later, then refine the actual conversation only if needed.</p>
+            <h2>Campaign Identity & Call Flow Requirements</h2>
+            <p className="workspace-lead">
+              Configure your campaign identity, then guide how the AI speaks and guides the conversation. The AI generates a customized decision flow tailored to your requirements.
+            </p>
+
             <div className="workspace-fields">
-              <label>Campaign name<input value={knowledge.campaignName} onChange={(e) => onUpdateKnowledge({ ...knowledge, campaignName: e.target.value })} /></label>
-              <label>Purpose<textarea rows={3} value={knowledge.description} onChange={(e) => onUpdateKnowledge({ ...knowledge, description: e.target.value })} /></label>
-              <label>Company represented<input value={knowledge.agentPersona.company} onChange={(e) => onUpdateKnowledge({ ...knowledge, agentPersona: { ...knowledge.agentPersona, company: e.target.value } })} /></label>
+              <div className="workspace-inline-fields">
+                <label>
+                  Campaign name
+                  <input
+                    value={knowledge.campaignName}
+                    placeholder="e.g. Fiber Loyalty Renewal Outreach"
+                    onChange={(e) => onUpdateKnowledge({ ...knowledge, campaignName: e.target.value })}
+                  />
+                </label>
+                <label>
+                  Company represented
+                  <input
+                    value={knowledge.agentPersona.company}
+                    placeholder="e.g. Apex Fiber Internet"
+                    onChange={(e) => onUpdateKnowledge({ ...knowledge, agentPersona: { ...knowledge.agentPersona, company: e.target.value } })}
+                  />
+                </label>
+              </div>
+
+              <label>
+                High-level purpose
+                <input
+                  value={knowledge.description}
+                  placeholder="Brief one-line goal (e.g. Confirm annual plan renewal and offer router upgrade)"
+                  onChange={(e) => onUpdateKnowledge({ ...knowledge, description: e.target.value })}
+                />
+              </label>
+
+              {/* Call Flow Requirements Prompt Card */}
+              <div className="workspace-prompt-card">
+                <label className="workspace-prompt-input-label">
+                  Call flow instructions
+                  <textarea
+                    rows={4}
+                    value={knowledge.requirementsPrompt ?? ''}
+                    placeholder="Describe how the call should flow, what to qualify, how to handle objections, and the desired outcome..."
+                    onChange={(e) => onUpdateKnowledge({ ...knowledge, requirementsPrompt: e.target.value })}
+                  />
+                </label>
+
+                {/* Tone selection */}
+                <div className="workspace-tone-group">
+                  <span className="workspace-field-sublabel">Conversational tone:</span>
+                  <div className="workspace-tone-grid">
+                    {TONE_OPTIONS.map((opt) => (
+                      <button
+                        key={opt.value}
+                        type="button"
+                        className={`workspace-tone-chip ${knowledge.agentPersona.tone === opt.value ? 'selected' : ''}`}
+                        onClick={() => onUpdateKnowledge({
+                          ...knowledge,
+                          agentPersona: { ...knowledge.agentPersona, tone: opt.value },
+                        })}
+                      >
+                        <span className="tone-label">{opt.label}</span>
+                        <span className="tone-desc">{opt.desc}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
             </div>
+
             <div className="workspace-actions">
-              <button type="button" className="btn-clean-primary" onClick={generateDraft} disabled={!knowledge.description.trim() || isGenerating}>
-                <Sparkles size={14} /> {isGenerating ? 'Generating draft...' : 'Generate draft with AI'}
+              <button
+                type="button"
+                className="btn-clean-primary"
+                onClick={generateDraft}
+                disabled={!canGenerate}
+              >
+                <Sparkles size={14} /> {isGenerating ? 'Generating tailored flow...' : 'Generate draft with AI'}
               </button>
-              <button type="button" className="btn-clean-outline" onClick={onOpenStudio}>Use template flow <ArrowRight size={14} /></button>
+              <button type="button" className="btn-clean-outline" onClick={onOpenStudio}>
+                Use template flow <ArrowRight size={14} />
+              </button>
             </div>
-            <p className="workspace-note">AI creates a draft from this overview and any approved knowledge. You review every step in Decision Studio before using it.</p>
           </>}
 
           {activeTab === 'knowledge' && <>

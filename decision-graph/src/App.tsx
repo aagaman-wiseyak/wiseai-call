@@ -81,7 +81,19 @@ export default function App() {
         faqs: [],
         knowledgeItems: [],
       },
-      initialNodes: [],
+      initialNodes: [
+        {
+          id: 'node-greeting-1',
+          type: 'greeting',
+          position: { x: 450, y: 120 },
+          data: {
+            type: 'greeting',
+            label: 'Opening Greeting',
+            openingScript: 'Hi {{lead_name}}, this is {{agent_name}} with {{company}}. Do you have a moment to talk?',
+            voiceStyle: 'Professional',
+          },
+        },
+      ],
       initialEdges: [],
     };
 
@@ -108,15 +120,31 @@ export default function App() {
 
   const handleGenerateDraft = async () => {
     try {
-      const generated = await generateDecisionGraphWithLlm(activeKnowledge.description, activeKnowledge);
+      const promptToUse = activeKnowledge.requirementsPrompt?.trim() || activeKnowledge.description;
+      const generated = await generateDecisionGraphWithLlm(promptToUse, activeKnowledge);
+      const updatedKnowledge: CampaignKnowledge = {
+        ...activeKnowledge,
+        ...generated.knowledge,
+        campaignName: activeKnowledge.campaignName || generated.knowledge.campaignName,
+        description: activeKnowledge.description || generated.knowledge.description,
+        requirementsPrompt: activeKnowledge.requirementsPrompt || generated.knowledge.requirementsPrompt,
+        agentPersona: {
+          ...generated.knowledge.agentPersona,
+          company: activeKnowledge.agentPersona.company || generated.knowledge.agentPersona.company,
+          tone: activeKnowledge.agentPersona.tone || generated.knowledge.agentPersona.tone,
+        },
+        knowledgeItems: activeKnowledge.knowledgeItems.length > 0 ? activeKnowledge.knowledgeItems : generated.knowledge.knowledgeItems,
+      };
+
       setCurrentTemplate((previous) => ({
         ...previous,
-        name: activeKnowledge.campaignName || generated.name,
-        tagline: activeKnowledge.description || generated.tagline,
-        knowledge: activeKnowledge,
+        name: updatedKnowledge.campaignName,
+        tagline: updatedKnowledge.description,
+        knowledge: updatedKnowledge,
         initialNodes: generated.nodes,
         initialEdges: generated.edges,
       }));
+      setActiveKnowledge(updatedKnowledge);
       setActiveNodes(generated.nodes);
       setActiveEdges(generated.edges);
       setStage('canvas');

@@ -155,9 +155,17 @@ export const VoiceCallPage: React.FC<VoiceCallPageProps> = ({
   const streamWords = (msgId: string, fullText: string, onFinish?: () => void) => {
     if (streamIntervalRef.current) clearInterval(streamIntervalRef.current);
 
+    const sanitized = fullText.trim();
+    if (!sanitized || [']', '}', '{}', '[]', 'null', 'None'].includes(sanitized)) {
+      setActiveStreamingMsgId(null);
+      setStreamingText('');
+      if (onFinish) onFinish();
+      return;
+    }
+
     setActiveStreamingMsgId(msgId);
     setStreamingText('');
-    const words = fullText.split(' ');
+    const words = sanitized.split(' ');
     let currentIdx = 0;
 
     // Word step pace
@@ -310,13 +318,38 @@ export const VoiceCallPage: React.FC<VoiceCallPageProps> = ({
     return nodes.find((n) => n.data.type === 'greeting') || nodes[0];
   };
 
-  const executeNode = (node: CustomFlowNode, vars = simState.variables) => {
+  const executeNode = (node: CustomFlowNode, vars = simState.variables, overrideSpeech?: string) => {
+    // If this node is a scenarioBranch, automatically traverse to its downstream target
+    if (node.data.type === 'scenarioBranch') {
+      const branchEdge = edges.find((e) => e.source === node.id);
+      if (branchEdge) {
+        const targetNode = nodes.find((n) => n.id === branchEdge.target);
+        if (targetNode) {
+          executeNode(targetNode, vars, overrideSpeech);
+          return;
+        }
+      }
+    }
+
     setSimState((prev) => ({ ...prev, activeNodeId: node.id, isAiSpeaking: true }));
 
     let scriptToSpeak = '';
     const nodeData = node.data as any;
 
-    if (node.data.type === 'greeting') {
+    if (overrideSpeech && overrideSpeech.trim() && ![']', '}', '{}', '[]', 'null', 'None'].includes(overrideSpeech.trim())) {
+      const cleanOverride = overrideSpeech.trim();
+      const nodePrompt = node.data.type === 'question' ? (nodeData.speechPrompt || '') :
+        node.data.type === 'greeting' ? (nodeData.openingScript || '') :
+          node.data.type === 'knowledge' ? (nodeData.rebuttalScript || '') :
+            node.data.type === 'hangup' ? (nodeData.closingScript || '') : '';
+
+      // If override is just an acknowledgment bridge without the node's question, deliver the node's options and prompt
+      if (nodePrompt && !cleanOverride.includes('?') && nodePrompt.includes('?')) {
+        scriptToSpeak = interpolate(`${cleanOverride.replace(/[.!?]+$/, '')}. ${nodePrompt}`, vars);
+      } else {
+        scriptToSpeak = interpolate(cleanOverride, vars);
+      }
+    } else if (node.data.type === 'greeting') {
       scriptToSpeak = interpolate(nodeData.openingScript || 'Hello!', vars);
     } else if (node.data.type === 'question') {
       scriptToSpeak = interpolate(nodeData.speechPrompt || '', vars);
@@ -326,6 +359,13 @@ export const VoiceCallPage: React.FC<VoiceCallPageProps> = ({
       scriptToSpeak = `Confirming your ${nodeData.label || 'selection'} right now.`;
     } else if (node.data.type === 'hangup') {
       scriptToSpeak = interpolate(nodeData.closingScript || 'Thank you for your time. Have a great day!', vars);
+    }
+
+    const cleanScript = scriptToSpeak.trim();
+    if (!cleanScript || [']', '}', '{}', '[]'].includes(cleanScript)) {
+      setSimState((prev) => ({ ...prev, isAiSpeaking: false }));
+      handlePostSpeech(node, vars);
+      return;
     }
 
     const msgId = `msg-${Date.now()}`;
@@ -343,10 +383,10 @@ export const VoiceCallPage: React.FC<VoiceCallPageProps> = ({
     }));
 
     // Stream words into the message bubble in real time
-    streamWords(msgId, scriptToSpeak);
+    streamWords(msgId, cleanScript);
 
     if (simState.audioTtsEnabled && node.data.type !== 'action') {
-      speakText(scriptToSpeak, knowledge.agentPersona.speakingRate || 1.0, 1.0, () => {
+      speakText(cleanScript, knowledge.agentPersona.speakingRate || 1.0, 1.0, () => {
         setSimState((prev) => ({ ...prev, isAiSpeaking: false }));
         handlePostSpeech(node, vars);
       }, { language: callLanguage });
@@ -518,8 +558,8 @@ export const VoiceCallPage: React.FC<VoiceCallPageProps> = ({
           const label = result.knowledge_topic
             ? `Knowledge: ${result.knowledge_topic}`
             : result.intent_matched === 'repeated_question'
-            ? 'Question Repeated'
-            : 'Clarification';
+              ? 'Question Repeated'
+              : 'Clarification';
 
           const replyMsg: SimulationMessage = {
             id: replyId,
@@ -560,7 +600,7 @@ export const VoiceCallPage: React.FC<VoiceCallPageProps> = ({
               setSimState((prev) => ({ ...prev, variables: updatedVars, activeEdgeId: edgeBetween.id }));
             }
 
-            executeNode(nextNode, updatedVars);
+            executeNode(nextNode, updatedVars, result.ai_response_text);
             return;
           }
         }
@@ -795,12 +835,12 @@ export const VoiceCallPage: React.FC<VoiceCallPageProps> = ({
             {/* Status Visualizer Circle per Section 2.7 of Brand Spec */}
             <div
               className={`avatar-status-circle ${simState.status === 'connected'
-                  ? isUserSpeaking
-                    ? 'speaking user-speaking'
-                    : simState.isAiSpeaking
-                      ? 'speaking'
-                      : 'connected'
-                  : simState.status
+                ? isUserSpeaking
+                  ? 'speaking user-speaking'
+                  : simState.isAiSpeaking
+                    ? 'speaking'
+                    : 'connected'
+                : simState.status
                 }`}
             >
               {simState.isAiSpeaking ? (

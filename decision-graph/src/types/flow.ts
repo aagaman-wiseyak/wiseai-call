@@ -99,6 +99,8 @@ export type CustomFlowEdge = Edge<{
   intent?: string;
   isObjection?: boolean;
   isActive?: boolean;
+  color?: string;
+  isReturn?: boolean;
 }>;
 
 export interface FAQItem {
@@ -147,6 +149,7 @@ export interface CampaignKnowledge {
   campaignId: string;
   campaignName: string;
   description: string;
+  requirementsPrompt?: string;
   agentPersona: {
     name: string;
     role: string;
