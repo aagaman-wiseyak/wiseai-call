@@ -265,5 +265,59 @@ def test_customer_satisfied_with_knowledge_reprompts_node_question(monkeypatch):
     assert "streaming 4K video" in result["ai_response_text"]
 
 
+def test_scenario_branch_auto_traversal(monkeypatch):
+    """Verifies that decision nodes (scenarioBranch) are auto-traversed directly to the target conversational step."""
+    async def completion(*_args, **_kwargs):
+        return {
+            "decision": "transition",
+            "extracted_intent": "Customer confirmed heavy internet usage",
+            "selected_route_id": "node-action-main",
+            "has_question": False,
+            "answer": "",
+            "knowledge_action": "no_knowledge",
+            "extracted_variable": {"name": "internet_usage", "value": "heavy"},
+            "confidence": 0.99,
+            "reasoning": "User has heavy usage, selecting high-speed renewal package.",
+        }
+
+    monkeypatch.setattr("services.turn_orchestrator.llm_service.structured_completion", completion)
+    result = asyncio.run(turn_orchestrator.process(
+        user_text="its heavy",
+        current_node={"id": "node-question", "data": {"speechPrompt": "Is your usage light or heavy?", "variableToExtract": "internet_usage"}},
+        outgoing_branches=[
+            {"id": "e-q-r", "source": "node-question", "target": "node-router", "data": {"label": "Lead Speaks"}},
+        ],
+        all_nodes=[
+            {"id": "node-question", "data": {"speechPrompt": "Is your usage light or heavy?"}},
+            {"id": "node-router", "data": {"type": "scenarioBranch", "label": "Usage Router"}},
+            {"id": "node-action-main", "data": {"type": "action", "label": "Lock 1Gbps Fiber Plan"}},
+            {"id": "node-rebuttal", "data": {"type": "knowledge", "label": "Cost Concern"}},
+        ],
+        campaign_knowledge={"agentPersona": {"company": "Vianet", "name": "Alex"}},
+        conversation_state={},
+        conversation_history=[],
+        all_edges=[
+            {"id": "e-q-r", "source": "node-question", "target": "node-router"},
+            {"id": "e-r-pos", "source": "node-router", "target": "node-action-main", "data": {"label": "Heavy / Yes"}},
+            {"id": "e-r-reb", "source": "node-router", "target": "node-rebuttal", "data": {"label": "Price Concern"}},
+        ],
+    ))
+
+    # Should traverse directly to the target action node, not get stuck on node-router
+    assert result["next_node_id"] == "node-action-main"
+    assert result["extracted_variable"] == {"name": "internet_usage", "value": "heavy"}
+
+
+def test_stray_bracket_sanitized_from_output(monkeypatch):
+    """Verifies that stray bracket tokens like ']' or '}' from model responses are sanitized."""
+    from services.turn_orchestrator import sanitize_ai_speech
+
+    assert sanitize_ai_speech("]") == ""
+    assert sanitize_ai_speech("}") == ""
+    assert sanitize_ai_speech("[]") == ""
+    assert sanitize_ai_speech("```json\n[\n]\n```") == ""
+    assert sanitize_ai_speech("Hello, welcome back!") == "Hello, welcome back!"
+
+
 
 

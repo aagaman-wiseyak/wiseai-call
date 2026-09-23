@@ -4,7 +4,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from typing import List, Dict, Any, Optional
 
-from services.turn_orchestrator import turn_orchestrator
+from services.turn_orchestrator import turn_orchestrator, sanitize_ai_speech
 from services.tts_service import tts_service
 from services.asr_service import asr_service
 
@@ -69,16 +69,27 @@ async def process_turn(req: ProcessTurnRequest):
         conversation_state=req.conversation_state,
         conversation_history=req.conversation_history,
         language=req.language,
+        all_edges=req.edges,
     )
 
     next_id = routing_result.get("next_node_id")
     next_node = next((n for n in req.nodes if n.get("id") == next_id), None)
 
+    # If next_node is a scenarioBranch, auto-advance to its child branch
+    if next_node and next_node.get("data", {}).get("type") == "scenarioBranch":
+        downstream = [e for e in req.edges if e.get("source") == next_node.get("id")]
+        if downstream:
+            target_edge = downstream[0]
+            next_node = next((n for n in req.nodes if n.get("id") == target_edge.get("target")), next_node)
+            next_id = next_node.get("id") if next_node else next_id
+            routing_result["next_node_id"] = next_id
+
     ai_speech = ""
     action_data = None
     # Orchestrator-composed speech takes priority (knowledge answers, question repeats, escalations)
-    if routing_result.get("ai_response_text"):
-        ai_speech = routing_result.get("ai_response_text", "")
+    composed_speech = sanitize_ai_speech(routing_result.get("ai_response_text", ""))
+    if composed_speech:
+        ai_speech = composed_speech
     elif next_node:
         ntype = next_node.get("data", {}).get("type")
         if ntype == "question":
@@ -87,11 +98,13 @@ async def process_turn(req: ProcessTurnRequest):
             ai_speech = next_node.get("data", {}).get("rebuttalScript", "")
         elif ntype == "action":
             action_data = next_node.get("data", {}).get("actionConfig", {})
-            ai_speech = f"Perfect! I am locking in your {next_node.get('data', {}).get('label', 'selected plan')} and sending your confirmation link right away."
+            ai_speech = f"Perfect! Confirming your {next_node.get('data', {}).get('label', 'selected plan')} right now."
         elif ntype == "hangup":
             ai_speech = next_node.get("data", {}).get("closingScript", "Thank you for your time. Goodbye!")
         else:
-            ai_speech = next_node.get("data", {}).get("label", "")
+            ai_speech = ""
+
+    ai_speech = sanitize_ai_speech(ai_speech)
 
     updated_vars = dict(req.variables)
     if routing_result.get("extracted_variable"):

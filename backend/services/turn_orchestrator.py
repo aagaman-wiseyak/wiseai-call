@@ -11,12 +11,45 @@ from typing import Any, Dict, List, Optional
 
 from services.llm_service import llm_service
 
+import re
+
 logger = logging.getLogger("turn_orchestrator")
+
+
+def sanitize_ai_speech(text: Optional[str]) -> str:
+    """Strip stray markdown code fences, JSON artifacts, or trailing punctuation."""
+    if not text:
+        return ""
+    t = str(text).strip()
+    if t.startswith("```"):
+        t = re.sub(r"^```[a-zA-Z]*\s*", "", t)
+        t = re.sub(r"\s*```$", "", t).strip()
+    # If the text contains no word or Nepali characters, it is purely bracket/punctuation artifact
+    if not re.search(r"[\w\u0900-\u097F]", t):
+        return ""
+    # Strip stray dangling outer brackets if whole string is wrapped
+    if (t.startswith("[") and t.endswith("]")) or (t.startswith("{") and t.endswith("}")):
+        inner = t[1:-1].strip()
+        if inner and not inner.startswith('"') and not inner.startswith('{'):
+            t = inner
+    return t.strip()
 
 
 def _script(node: Dict[str, Any]) -> str:
     data = node.get("data", {})
     return data.get("speechPrompt") or data.get("openingScript") or data.get("label", "")
+
+
+def _extract_last_question(speech: Optional[str]) -> str:
+    """Extracts the final question from a node speech prompt to re-prompt caller."""
+    if not speech:
+        return ""
+    cleaned = " ".join(str(speech).replace("\n", " ").split())
+    sentences = [s.strip() for s in re.split(r"(?<=[.?!])\s+", cleaned) if s.strip()]
+    question_sentences = [s for s in sentences if s.endswith("?")]
+    if question_sentences:
+        return question_sentences[-1]
+    return sentences[-1] if sentences else ""
 
 
 def _knowledge_items(campaign_knowledge: Optional[Dict[str, Any]]) -> List[Dict[str, str]]:
@@ -72,6 +105,7 @@ class TurnOrchestrator:
         conversation_state: Optional[Dict[str, Any]],
         conversation_history: List[Dict[str, Any]],
         language: str = "eng",
+        all_edges: Optional[List[Dict[str, Any]]] = None,
     ) -> Dict[str, Any]:
         state = dict(conversation_state or {})
         pending_node_id = state.get("pending_next_node_id")
@@ -80,17 +114,44 @@ class TurnOrchestrator:
 
         routes = []
         valid_route_ids = set()
+        router_mapping = {}  # router_id -> list of child target_ids
+
+        # Build candidate routes, auto-expanding scenarioBranch decision nodes
+        edges_pool = all_edges or outgoing_branches
         for edge in outgoing_branches:
             target_id = edge.get("target")
             if not target_id:
                 continue
             target = next((node for node in all_nodes if node.get("id") == target_id), None)
-            valid_route_ids.add(target_id)
-            routes.append({
-                "id": target_id,
-                "condition": edge.get("data", {}).get("label") or edge.get("label") or "Next step",
-                "step": target.get("data", {}).get("label", target_id) if target else target_id,
-            })
+            if not target:
+                continue
+
+            target_type = target.get("data", {}).get("type")
+            if target_type == "scenarioBranch":
+                # Expand downstream branches from this router node
+                downstream_edges = [e for e in edges_pool if e.get("source") == target_id]
+                valid_route_ids.add(target_id)
+                router_mapping[target_id] = []
+                for de in downstream_edges:
+                    dt_id = de.get("target")
+                    dt_node = next((node for node in all_nodes if node.get("id") == dt_id), None)
+                    d_cond = de.get("data", {}).get("label") or de.get("label") or "Branch Option"
+                    if dt_id:
+                        valid_route_ids.add(dt_id)
+                        router_mapping[target_id].append(dt_id)
+                        routes.append({
+                            "id": dt_id,
+                            "condition": d_cond,
+                            "step": dt_node.get("data", {}).get("label", dt_id) if dt_node else dt_id,
+                            "via_router": target_id,
+                        })
+            else:
+                valid_route_ids.add(target_id)
+                routes.append({
+                    "id": target_id,
+                    "condition": edge.get("data", {}).get("label") or edge.get("label") or "Next step",
+                    "step": target.get("data", {}).get("label", target_id),
+                })
 
         handbook = _knowledge_items(campaign_knowledge)
         history = [
@@ -114,45 +175,81 @@ class TurnOrchestrator:
                 f"If the customer did not specify a value for '{variable_name}', set 'extracted_variable': null.\n\n"
             )
 
+        agent_persona = (campaign_knowledge or {}).get("agentPersona") or {}
+        lead_profile = (campaign_knowledge or {}).get("leadProfile") or {}
+        campaign_identity = {
+            "agent_name": agent_persona.get("name") or "Alex",
+            "company": agent_persona.get("company") or "Company Representative",
+            "role": agent_persona.get("role") or "Advisor",
+            "lead_name": lead_profile.get("name") or "",
+        }
+
         system_prompt = (
-            f"You are an intelligent outbound-call turn interpreter and flow decision engine. Return strict JSON only.\n{lang_instruction}"
-            "CORE PRINCIPLES (NO HARDCODED INTENT RESTRICTIONS):\n"
-            "Analyze what the customer said in conversational context, extract their genuine intent into 'extracted_intent' (freeform description), and decide the appropriate action:\n\n"
-            "1. 'transition': Customer answered the question, made a choice, confirmed, or declined matching an ALLOWED_ROUTE.\n"
-            "   - Propose 'selected_route_id' from ALLOWED_ROUTES.\n"
-            "   - If the caller states they are NOT the intended contact (e.g. brother, receptionist, wrong number), "
-            "     select an allowed third-party or exit route, and provide a polite, natural apology in 'answer' without addressing them as the lead.\n\n"
-            "2. 'knowledge': Customer asks a question or raises a concern.\n"
-            "   - Answer using ONLY APPROVED_KNOWLEDGE. Never invent facts.\n"
-            "   - COMPOUND INPUTS: If the customer answers the step AND asks a question (e.g. 'Yes, but is there a contract?'), "
-            "     select the route in 'selected_route_id', set has_question=true, set knowledge_action='answer_and_hold', and provide the spoken answer.\n"
-            "   - If they ask a question before choosing a branch, set knowledge_action='answer_and_hold', selected_route_id=null, and provide the answer.\n\n"
-            "3. KNOWLEDGE THREAD RESOLUTION (Customer is satisfied after an answer):\n"
-            "   - If an OPEN_KNOWLEDGE_THREAD is active and the customer indicates satisfaction or understanding ('okay', 'sounds good', 'got it'):\n"
-            "     * If HELD_ROUTE_ID is set (they had agreed before asking): set knowledge_action='continue_held_route' to advance along the held route.\n"
-            "     * If HELD_ROUTE_ID is none (they asked before answering): set knowledge_action='ask_question_again', and in 'answer', politely re-ask the CURRENT_STEP question now that their inquiry is answered.\n\n"
-            "4. 'repeat' / CLARIFICATION (Customer is confused or says 'I don't understand'):\n"
-            "   - If customer says 'I don't understand', 'What do you mean?', or asks to repeat:\n"
-            "   - In 'answer', explain the question with GREATER CLARITY. You may draw on APPROVED_KNOWLEDGE to clarify concepts, plan speeds, or terms so the customer easily understands.\n\n"
+            "You are an expert real-time outbound call turn interpreter and conversational decision engine. "
+            "Your objective is to accurately interpret the customer's spoken utterance, evaluate conversational context, "
+            "select the optimal decision graph path, and provide strictly factual, voice-optimized spoken responses.\n\n"
+            f"{lang_instruction}\n"
+            "═══════════════════════════════════════════════════════════════════════════\n"
+            "CORE SPEECH & CONVERSATIONAL INTERPRETATION PRINCIPLES:\n"
+            "═══════════════════════════════════════════════════════════════════════════\n"
+            "1. SPEECH DISFLUENCIES & ASR RESILIENCE:\n"
+            "   - Real callers use filler words ('uh', 'um', 'like', 'well', 'you see'), hesitation pauses, and self-corrections.\n"
+            "   - If caller corrects themselves (e.g., 'Tuesday... actually wait, Wednesday morning is better'), always prioritize their final affirmed intent.\n"
+            "   - Tolerate common automatic speech recognition (ASR) phonetic distortions.\n\n"
+            "2. DECISION ACTIONS:\n"
+            "   a) 'transition': Customer answered the question, made a choice, agreed, objected, or asked for more details when an inquiry route exists in ALLOWED_ROUTES.\n"
+            "      - Propose the appropriate 'selected_route_id' from ALLOWED_ROUTES.\n"
+            "      - If an ALLOWED_ROUTE explicitly covers inquiry/details (e.g. 'Tell Me More', 'What Channels?', 'Learn More'), select that route under 'transition'!\n"
+            "      - VOICE PHONE REALITY: The caller CANNOT see a screen. NEVER output vague filler like 'Let me show you the options' or 'Let me see what fits'.\n"
+            "      - For 'answer', provide either a brief natural acknowledgment (e.g. 'Got it!' or 'Perfect!'), or leave empty so the target step's concrete plan options and prices are delivered directly.\n"
+            "      - If caller is NOT the intended contact (e.g. receptionist, spouse, wrong number), choose the exit or third-party route, and provide a polite, natural spoken apology in 'answer'.\n\n"
+            "   b) 'knowledge': Customer asks an informational question or raises a campaign-related concern NOT covered by an explicit branch in ALLOWED_ROUTES.\n"
+            "      - CHECK APPROVED_KNOWLEDGE:\n"
+            "        * If found in APPROVED_KNOWLEDGE, CAMPAIGN_IDENTITY, or RECENT_DIALOGUE: answer accurately and factually.\n"
+            "        * If NOT found in APPROVED_KNOWLEDGE (e.g. unlisted student discount, student offer, senior discount, special promo):\n"
+            "          - State clearly that you checked and confirmed we do not currently have that offer or discount available.\n"
+            "          - FORBIDDEN PHRASES: NEVER say 'I can check that for you', 'Let me look into that', 'One moment please', or 'Hold on'. You are on a live phone call and cannot put the caller on hold!\n"
+            "          - ALWAYS immediately follow up with a question re-anchoring to CURRENT_STEP or HELD_ROUTE! (e.g. 'I checked our plans, and we don't have a student discount available right now. Would you like to proceed with the Ultra plan, or look at a budget option?')\n"
+            "      - VOICE BREVITY RULE: The spoken 'answer' MUST be concise (under 30 words), direct, and end with a follow-up question so the customer knows what to respond to.\n"
+            "      - COMPOUND INPUTS: If customer answers the step AND asks a question (e.g. 'Yes that sounds good, but how much is it after 6 months?' or 'Sure, but who are you with again?'):\n"
+            "        * Propose the appropriate route in 'selected_route_id'.\n"
+            "        * Set has_question=true.\n"
+            "        * Set knowledge_action='answer_and_hold'.\n"
+            "        * Provide the concise spoken factual answer and follow-up in 'answer'.\n"
+            "      - PURE INQUIRY WITHOUT MATCHING ROUTE: If customer asks for details before deciding and NO ALLOWED_ROUTE matches their inquiry, set selected_route_id=null, set knowledge_action='answer_and_hold', and answer the question with a follow-up.\n\n"
+            "   c) KNOWLEDGE THREAD RESOLUTION & PERSISTENT CHECKS:\n"
+            "      - If caller persists or asks to check again ('please check and let me know', 'can you check?'):\n"
+            "        * Affirm clearly that you verified our active system and confirmed there is no such discount or offer available at this time.\n"
+            "        * Re-prompt the CURRENT_STEP question (or HELD_ROUTE) to ask whether they would like to proceed with our available plans.\n"
+            "      - When an OPEN_KNOWLEDGE_THREAD is active and caller expresses understanding or makes a choice ('okay', 'I see', 'sounds fair', 'got it', 'proceed', 'internet only'):\n"
+            "        * If caller made a choice matching an ALLOWED_ROUTE (e.g. 'internet only' or 'add tv'): set decision='transition', select that route ID, and set knowledge_action='continue_held_route'.\n"
+            "        * If HELD_ROUTE_ID is set: set knowledge_action='continue_held_route' to proceed.\n"
+            "        * If HELD_ROUTE_ID is none: set knowledge_action='ask_question_again', and in 'answer', politely re-ask the CURRENT_STEP question.\n\n"
+            "   d) 'repeat' / CLARIFICATION:\n"
+            "      - If customer expresses confusion ('what?', 'pardon?', 'I don't understand', 'what is this regarding?'):\n"
+            "      - Provide an empathetic, clear 1-sentence re-explanation in 'answer' drawing on APPROVED_KNOWLEDGE.\n\n"
             f"{var_instruction}"
             f"CURRENT_STEP: {_script(current_node)}\n"
             f"ALLOWED_ROUTES: {json.dumps(routes)}\n"
             f"HELD_ROUTE_ID: {pending_node_id or 'none'}\n"
             f"OPEN_KNOWLEDGE_THREAD: {json.dumps(knowledge_thread)}\n"
+            f"CAMPAIGN_IDENTITY: {json.dumps(campaign_identity)}\n"
             f"APPROVED_KNOWLEDGE: {json.dumps(handbook)}\n\n"
-            "Return this JSON shape:\n"
-            '{\n'
+            "═══════════════════════════════════════════════════════════════════════════\n"
+            "RETURN STRICT JSON ONLY:\n"
+            "═══════════════════════════════════════════════════════════════════════════\n"
+            "{\n"
             '  "decision": "transition|repeat|knowledge",\n'
-            '  "extracted_intent": "freeform summary of customer intent",\n'
-            '  "selected_route_id": "allowed id or null",\n'
-            '  "has_question": true,\n'
-            '  "answer": "spoken response, clarification, or empty string",\n'
-            '  "source_ids": ["approved item id"],\n'
+            '  "extracted_intent": "Precise, freeform summary of customer\'s spoken intent",\n'
+            '  "selected_route_id": "Allowed route ID from ALLOWED_ROUTES or null",\n'
+            '  "has_question": true/false,\n'
+            '  "answer": "Concise spoken response/clarification under 25 words, or empty string",\n'
+            '  "source_ids": ["IDs of approved knowledge items cited"],\n'
             '  "knowledge_action": "answer_and_hold|continue_held_route|ask_question_again|no_knowledge",\n'
-            '  "extracted_variable": {"name": "variable_name", "value": "extracted value"} or null,\n'
-            '  "confidence": 0.0,\n'
-            '  "reasoning": "short explanation"\n'
-            '}'
+            '  "extracted_variable": {"name": "variable_name", "value": "normalized_value"} or null,\n'
+            '  "confidence": 0.0 to 1.0,\n'
+            '  "reasoning": "Concise justification for the routing and decision"\n'
+            "}"
         )
         user_prompt = f"RECENT_DIALOGUE: {json.dumps(history)}\nCUSTOMER: {user_text}"
 
@@ -186,12 +283,36 @@ class TurnOrchestrator:
         source_ids = [source_id for source_id in result.get("source_ids", []) if source_id in approved_ids]
         action = result.get("knowledge_action", "no_knowledge")
         has_question = bool(result.get("has_question"))
-        answer = str(result.get("answer") or "").strip()
+        answer = sanitize_ai_speech(result.get("answer"))
         decision = result.get("decision", "transition" if proposed_route else "repeat")
         extracted_intent = str(result.get("extracted_intent") or result.get("caller_intent") or "").lower()
         extracted_var = result.get("extracted_variable")
         if not (isinstance(extracted_var, dict) and extracted_var.get("name") and extracted_var.get("value") is not None):
             extracted_var = None
+
+        # Auto-resolve scenarioBranch: if proposed_route is a router node, traverse to its child
+        proposed_node = next((n for n in all_nodes if n.get("id") == proposed_route), None)
+        if proposed_node and proposed_node.get("data", {}).get("type") == "scenarioBranch":
+            child_edges = [e for e in edges_pool if e.get("source") == proposed_route]
+            if child_edges:
+                matched_child = None
+                for ce in child_edges:
+                    clabel = (ce.get("data", {}).get("label") or ce.get("label") or "").lower()
+                    if ("objection" in clabel or "concern" in clabel or "price" in clabel or "cost" in clabel) and any(w in extracted_intent for w in ["cost", "price", "expensive", "concern", "doubt", "plan"]):
+                        matched_child = ce.get("target")
+                        break
+                    elif ("busy" in clabel or "callback" in clabel or "later" in clabel) and any(w in extracted_intent for w in ["busy", "later", "driving", "meeting", "call back"]):
+                        matched_child = ce.get("target")
+                        break
+                    elif ("exit" in clabel or "opt" in clabel or "not" in clabel or "dnc" in clabel) and any(w in extracted_intent for w in ["not interested", "no", "remove", "cancel", "dnc"]):
+                        matched_child = ce.get("target")
+                        break
+                    elif any(w in clabel for w in ["yes", "interested", "accept", "positive", "heavy", "light"]) and any(w in extracted_intent for w in ["yes", "sure", "heavy", "light", "interested", "ok"]):
+                        matched_child = ce.get("target")
+                        break
+                if not matched_child:
+                    matched_child = child_edges[0].get("target")
+                proposed_route = matched_child
 
         # Check if caller stated they are not the intended contact
         is_wrong_contact = (
@@ -205,7 +326,7 @@ class TurnOrchestrator:
             state["lead_name_suppressed"] = True
 
         # 1. KNOWLEDGE QUESTION OR ANSWER_AND_HOLD
-        if has_question or action == "answer_and_hold" or (decision == "knowledge" and (answer or source_ids)):
+        if action == "answer_and_hold" or (decision == "knowledge" and (answer or source_ids)) or (has_question and not proposed_route):
             held_route = proposed_route or pending_node_id
             state["pending_next_node_id"] = held_route
             state["knowledge_thread"] = {
@@ -217,11 +338,33 @@ class TurnOrchestrator:
                 answer = (
                     "माफ गर्नुहोस्, यस सम्बन्धी आधिकारिक जानकारी मसँग छैन। म हाम्रो टोलीसँग बुझेर खबर गराउन सक्छु।"
                     if language == "nep"
-                    else "I don’t have an approved answer for that detail. I can arrange for our team to follow up."
+                    else "I checked our current catalogue, and we don't have that specific offer or discount available right now."
                 )
+            clean_speech = sanitize_ai_speech(answer)
+
+            # Strip any forbidden "hold on / let me check / one moment" promises
+            hold_patterns = [
+                r"one moment[,\s]*please\.?",
+                r"one moment\.?",
+                r"let me check (if|that|for you|what|whether)[a-zA-Z\s]*\.?",
+                r"i('ll| will| can) (look into|check) that[a-zA-Z\s]*\.?",
+                r"hold on[,\s]*please\.?",
+            ]
+            for hp in hold_patterns:
+                clean_speech = re.sub(hp, "I checked our current offers and we don't have that discount available right now.", clean_speech, flags=re.IGNORECASE).strip()
+
+            # Ensure the AI always asks a follow-up question so the customer isn't left hanging
+            if not any(clean_speech.strip().endswith(p) for p in ["?", "हो?", "छ त?", "हुन्न र?"]):
+                q_node = next((n for n in all_nodes if n.get("id") == held_route), None) if held_route else current_node
+                q_text = _extract_last_question(q_node.get("data", {}).get("speechPrompt", "") if q_node else "")
+                if q_text:
+                    clean_speech = f"{clean_speech.rstrip('. ')}. {q_text}"
+                else:
+                    clean_speech = f"{clean_speech.rstrip('. ')}. Would you like to proceed with our current renewal options?"
+
             return {
                 "next_node_id": current_node_id,
-                "ai_response_text": answer,
+                "ai_response_text": sanitize_ai_speech(clean_speech),
                 "intent_matched": "campaign_knowledge",
                 "confidence": result.get("confidence", 0.0),
                 "knowledge_invoked": True,
@@ -232,15 +375,33 @@ class TurnOrchestrator:
                 "conversation_state": state,
             }
 
-        # 2. RESUME HELD ROUTE AFTER KNOWLEDGE RESOLUTION
-        if action == "continue_held_route" and pending_node_id:
+        # 2. RESUME HELD ROUTE AFTER KNOWLEDGE RESOLUTION OR ROUTE TRANSITION
+        if proposed_route and decision == "transition":
+            state.pop("pending_next_node_id", None)
+            state.pop("knowledge_thread", None)
+            # Falls through directly to Section 4: transition to proposed_route!
+        elif (action == "continue_held_route" or (decision == "transition" and pending_node_id)) and pending_node_id:
+            held_id = pending_node_id
             state.pop("pending_next_node_id", None)
             state.pop("knowledge_thread", None)
             if "repeat_counts" in state and not state["repeat_counts"]:
                 state.pop("repeat_counts", None)
+
+            clean_answer = sanitize_ai_speech(answer)
+            if not clean_answer:
+                resumed_node = next((n for n in all_nodes if n.get("id") == held_id), None)
+                if resumed_node:
+                    rtype = resumed_node.get("data", {}).get("type")
+                    if rtype == "question":
+                        clean_answer = resumed_node.get("data", {}).get("speechPrompt", "")
+                    elif rtype == "action":
+                        clean_answer = f"Great, let's proceed! Locking in your {resumed_node.get('data', {}).get('label', 'selected plan')} right now."
+                    elif rtype == "hangup":
+                        clean_answer = resumed_node.get("data", {}).get("closingScript", "Thank you! Have a great day.")
+
             return {
-                "next_node_id": pending_node_id,
-                "ai_response_text": answer,
+                "next_node_id": held_id,
+                "ai_response_text": clean_answer,
                 "intent_matched": "knowledge_resolved",
                 "confidence": result.get("confidence", 0.0),
                 "knowledge_invoked": False,
@@ -286,16 +447,31 @@ class TurnOrchestrator:
             else:
                 state.pop("repeat_counts", None)
 
-            if is_wrong_contact and not answer:
-                answer = (
+            clean_answer = sanitize_ai_speech(answer)
+            target_node = next((n for n in all_nodes if n.get("id") == proposed_route), None)
+            target_script = _script(target_node) if target_node else ""
+
+            if is_wrong_contact and not clean_answer:
+                clean_answer = (
                     "माफ गर्नुहोस्, सम्पर्कमा केही भ्रम भयो। जानकारी दिनुभएकोमा धन्यवाद। शुभ दिन!"
                     if language == "nep"
                     else "Oh, apologies for the mix-up! Thank you for letting me know. Have a wonderful day!"
                 )
+            elif target_script:
+                is_just_filler = any(phrase in clean_answer.lower() for phrase in [
+                    "let me show", "let's see", "option in mind", "best options for",
+                    "fits your", "recommend our", "look into that", "options available"
+                ]) and not any(kw in clean_answer.lower() for kw in ["mbps", "rs", "rupee", "price", "pack", "?"])
+
+                if is_just_filler or not clean_answer:
+                    prefix = "Got it! " if any(w in clean_answer.lower() for w in ["got it", "understand", "thanks", "perfect"]) else ""
+                    clean_answer = f"{prefix}{target_script}"
+                elif "?" not in clean_answer and "?" in target_script:
+                    clean_answer = f"{clean_answer.rstrip('.!')}. {target_script}"
 
             return {
                 "next_node_id": proposed_route,
-                "ai_response_text": answer,
+                "ai_response_text": clean_answer,
                 "intent_matched": "wrong_contact" if is_wrong_contact else (result.get("extracted_intent") or "routed"),
                 "confidence": result.get("confidence", 0.0),
                 "knowledge_invoked": False,
@@ -315,15 +491,16 @@ class TurnOrchestrator:
             state["repeat_counts"] = repeat_counts
 
             current_script = _script(current_node)
-            if not answer:
+            clean_answer = sanitize_ai_speech(answer)
+            if not clean_answer:
                 if language == "nep":
-                    answer = f"हजुर, मैले भन्न खोजेको: {current_script}"
+                    clean_answer = f"हजुर, मैले भन्न खोजेको: {current_script}"
                 else:
-                    answer = f"No problem, let me repeat: {current_script}"
+                    clean_answer = f"No problem, let me repeat: {current_script}"
 
             return {
                 "next_node_id": current_node_id,
-                "ai_response_text": answer,
+                "ai_response_text": clean_answer,
                 "intent_matched": "repeated_question",
                 "confidence": result.get("confidence", 0.0),
                 "knowledge_invoked": False,
@@ -382,3 +559,4 @@ class TurnOrchestrator:
 
 
 turn_orchestrator = TurnOrchestrator()
+
